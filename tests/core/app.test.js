@@ -319,3 +319,16 @@ test("tasks persist across refreshes through localStorage", () => {
   assert.equal(getTaskText(taskRows[0]).textContent, "Plan weekend trip");
   assert.equal(secondPage.taskList.children[0].className, "task-item");
 });
+
+test("invalid saved task data falls back to a safe empty state and logs the load error", () => {
+  const { taskList, loggedErrors } = createAppHarness({
+    storageState: {
+      tasks: "{invalid-json"
+    }
+  });
+
+  assert.equal(getTaskRows(taskList).length, 0);
+  assert.equal(taskList.children[0].className, "empty-state");
+  assert.equal(loggedErrors.length, 1);
+  assert.equal(loggedErrors[0], "Failed to load tasks from localStorage.");
+});
