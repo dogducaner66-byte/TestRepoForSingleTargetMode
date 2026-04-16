@@ -1,0 +1,1 @@
+This personal todo app is a simple, clean browser-based task list that lets you add, complete, and delete tasks; open `index.html` in any modern browser to use it, and your tasks persist automatically in `localStorage` between sessions.
