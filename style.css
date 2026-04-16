@@ -6,23 +6,33 @@ body {
   margin: 0;
   padding: 32px 16px;
   min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
   font-family: Arial, sans-serif;
-  background: #f4f7fb;
+  background: #eef2ff;
   color: #1f2933;
 }
 
 .container {
+  width: 100%;
   max-width: 600px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 28px;
   border-radius: 16px;
   background: #ffffff;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
 }
 
 h1 {
+  margin: 0 0 8px;
+  text-align: center;
+}
+
+.subtitle {
   margin: 0 0 20px;
   text-align: center;
+  color: #64748b;
 }
 
 .input-row {
@@ -37,6 +47,11 @@ h1 {
   border: 1px solid #cbd5e1;
   border-radius: 10px;
   font-size: 1rem;
+}
+
+.input-row input:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
 }
 
 .input-row button {
@@ -88,6 +103,7 @@ h1 {
 .task-text {
   flex: 1;
   word-break: break-word;
+  cursor: pointer;
 }
 
 .completed .task-text {
@@ -107,4 +123,18 @@ h1 {
 
 .delete-btn:hover {
   background: #dc2626;
+}
+
+@media (max-width: 520px) {
+  body {
+    padding: 20px 12px;
+  }
+
+  .input-row {
+    flex-direction: column;
+  }
+
+  .input-row button {
+    width: 100%;
+  }
 }
