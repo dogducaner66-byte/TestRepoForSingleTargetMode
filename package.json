@@ -1,0 +1,10 @@
+{
+  "name": "simple-todo-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node --check app.js && node -e \"const fs=require('node:fs'); ['index.html','style.css','app.js','README.md'].forEach((file)=>fs.accessSync(file)); console.log('Build verification passed for static todo app.');\"",
+    "lint": "node -e \"const fs=require('node:fs'); const files=['index.html','style.css','app.js','README.md','tests/core/app.test.js']; files.forEach((file)=>{const content=fs.readFileSync(file,'utf8'); if(!content.endsWith('\\n')){throw new Error(file + ' must end with a newline.');}}); console.log('Lint verification passed.');\"",
+    "test": "node --test"
+  }
+}
