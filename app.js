@@ -14,7 +14,18 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const parsedTasks = JSON.parse(savedTasks);
-      return Array.isArray(parsedTasks) ? parsedTasks : [];
+      if (!Array.isArray(parsedTasks)) {
+        return [];
+      }
+
+      return parsedTasks
+        .filter((task) => task && typeof task.text === "string")
+        .map((task, index) => ({
+          id: typeof task.id === "string" || typeof task.id === "number" ? task.id : `task-${index}`,
+          text: task.text.trim(),
+          completed: Boolean(task.completed)
+        }))
+        .filter((task) => task.text.length > 0);
     } catch (error) {
       console.error("Failed to load tasks from localStorage.", error);
       return [];
@@ -37,7 +48,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     tasks.push({
-      id: Date.now(),
+      id: `${Date.now()}-${tasks.length}`,
       text,
       completed: false
     });
@@ -89,6 +100,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const taskText = document.createElement("span");
       taskText.className = "task-text";
       taskText.textContent = task.text;
+      taskText.addEventListener("click", () => toggleTask(task.id));
 
       const deleteButton = document.createElement("button");
       deleteButton.className = "delete-btn";
