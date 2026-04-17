@@ -320,6 +320,56 @@ test("tasks persist across refreshes through localStorage", () => {
   assert.equal(secondPage.taskList.children[0].className, "task-item");
 });
 
+test("task storage stays anchored to the tasks key and normalizes records to id text and completed", () => {
+  const { taskList, localStorage } = createAppHarness({
+    storageState: {
+      tasks: JSON.stringify([
+        {
+          id: "alpha",
+          text: "  Plan trip  ",
+          completed: 0,
+          priority: "high",
+          dueDate: "2026-05-01",
+          tags: ["travel"]
+        },
+        {
+          id: "missing-text",
+          completed: false
+        }
+      ])
+    }
+  });
+
+  const taskRows = getTaskRows(taskList);
+  assert.equal(taskRows.length, 1);
+  assert.equal(getTaskText(taskRows[0]).textContent, "Plan trip");
+
+  getToggle(taskRows[0]).dispatchEvent({ type: "change" });
+
+  assert.deepEqual(JSON.parse(localStorage.getItem("tasks")), [
+    {
+      id: "alpha",
+      text: "Plan trip",
+      completed: true
+    }
+  ]);
+});
+
+test("html and css keep the current class-based render seams for future task metadata", () => {
+  const html = fs.readFileSync(indexPath, "utf8");
+  const css = fs.readFileSync(stylePath, "utf8");
+
+  assert.match(html, /class="container"/);
+  assert.match(html, /class="input-row"/);
+  assert.match(html, /id="taskList"/);
+
+  assert.match(css, /\.input-row\s*\{/);
+  assert.match(css, /\.task-item\s*\{/);
+  assert.match(css, /\.task-text\s*\{/);
+  assert.match(css, /\.completed \.task-text\s*\{/);
+  assert.match(css, /@media \(max-width: 520px\)/);
+});
+
 test("invalid saved task data falls back to a safe empty state and logs the load error", () => {
   const { taskList, loggedErrors } = createAppHarness({
     storageState: {
