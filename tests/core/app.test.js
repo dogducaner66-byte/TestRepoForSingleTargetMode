@@ -382,3 +382,24 @@ test("invalid saved task data falls back to a safe empty state and logs the load
   assert.equal(loggedErrors.length, 1);
   assert.equal(loggedErrors[0], "Failed to load tasks from localStorage.");
 });
+
+test("save failures are logged without blocking in-memory task updates", () => {
+  const localStorage = {
+    getItem() {
+      return null;
+    },
+    setItem() {
+      throw new Error("disk full");
+    },
+    removeItem() {}
+  };
+  const { taskInput, addBtn, taskList, loggedErrors } = createAppHarness({ localStorage });
+
+  taskInput.value = "Write backup plan";
+  addBtn.click();
+
+  const taskRows = getTaskRows(taskList);
+  assert.equal(taskRows.length, 1);
+  assert.equal(getTaskText(taskRows[0]).textContent, "Write backup plan");
+  assert.deepEqual(loggedErrors, ["Failed to save tasks to localStorage."]);
+});
