@@ -82,6 +82,11 @@ select {
   gap: var(--space-2);
 }
 
+.composer-secondary {
+  display: grid;
+  gap: var(--space-2);
+}
+
 h1 {
   margin: 0;
   font-size: clamp(2rem, 5vw, 3rem);
@@ -93,6 +98,13 @@ h1 {
   max-width: 62ch;
   color: var(--color-muted);
   line-height: 1.6;
+}
+
+.composer-hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
 }
 
 .composer-card,
@@ -130,6 +142,7 @@ h1 {
 .input-row input,
 .input-row select,
 .search-row input,
+#tagsInput,
 .edit-input {
   width: 100%;
   min-height: 48px;
@@ -143,6 +156,8 @@ h1 {
 
 .input-row input::placeholder,
 .search-row input::placeholder,
+.subtask-input::placeholder,
+#tagsInput::placeholder,
 .edit-input::placeholder {
   color: #8b96a8;
 }
@@ -340,6 +355,7 @@ button:focus-visible,
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
 .task-text {
@@ -353,6 +369,12 @@ button:focus-visible,
 
 .task-meta {
   flex-wrap: wrap;
+}
+
+.details-toggle {
+  min-height: 40px;
+  padding: 10px 14px;
+  white-space: nowrap;
 }
 
 .task-badge,
@@ -400,6 +422,16 @@ button:focus-visible,
   border-color: rgba(220, 38, 38, 0.14);
 }
 
+.subtask-progress-chip {
+  color: var(--color-success);
+  background: var(--color-success-soft);
+  border-color: rgba(21, 128, 61, 0.18);
+}
+
+.task-tag {
+  border-color: transparent;
+}
+
 .completed .task-text {
   color: #7c8797;
   text-decoration: line-through;
@@ -413,6 +445,121 @@ button:focus-visible,
 
 .task-actions {
   grid-column: 1 / -1;
+}
+
+.task-details {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98) 0%, rgba(239, 246, 255, 0.9) 100%);
+}
+
+.task-details-header {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.task-details-title,
+.task-details-summary,
+.subtask-empty {
+  margin: 0;
+}
+
+.task-details-title {
+  font-size: 0.96rem;
+  font-weight: 700;
+}
+
+.task-details-summary,
+.subtask-empty {
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.subtask-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.subtask-input {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-3) 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-surface-strong);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.subtask-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.subtask-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.subtask-toggle {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.subtask-toggle::after {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: var(--color-success);
+  transform: scale(0);
+  transition: transform 0.2s ease;
+}
+
+.subtask-toggle:checked {
+  border-color: rgba(21, 128, 61, 0.32);
+  background: var(--color-success-soft);
+}
+
+.subtask-toggle:checked::after {
+  transform: scale(1);
+}
+
+.subtask-text {
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.subtask-item.completed .subtask-text {
+  color: #7c8797;
+  text-decoration: line-through;
+}
+
+.subtask-remove {
+  min-height: 40px;
+  padding: 10px 14px;
 }
 
 @media (min-width: 720px) {
@@ -441,6 +588,11 @@ button:focus-visible,
     align-items: center;
   }
 
+  .composer-secondary {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+    align-items: center;
+  }
+
   .task-item {
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: start;
@@ -458,5 +610,11 @@ button:focus-visible,
   .secondary-btn,
   .delete-btn {
     width: auto;
+  }
+
+  .subtask-editor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
   }
 }

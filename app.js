@@ -2,6 +2,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const taskInput = document.getElementById("taskInput");
   const priorityInput = document.getElementById("priorityInput");
   const dueDateInput = document.getElementById("dueDateInput");
+  const tagsInput = document.getElementById("tagsInput");
   const addBtn = document.getElementById("addBtn");
   const searchInput = document.getElementById("searchInput");
   const clearSearchBtn = document.getElementById("clearSearchBtn");
@@ -17,12 +18,25 @@ document.addEventListener("DOMContentLoaded", () => {
   ];
   const defaultPriority = "normal";
   const dueDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+  const whitespacePattern = /\s+/g;
 
+  let nextEntityId = Date.now();
   let tasks = loadTasks();
   let activeFilter = "all";
   let searchQuery = "";
   let editingTaskId = null;
   let editDraft = "";
+  const expandedTaskIds = new Set();
+
+  function createId(prefix) {
+    const id = `${prefix}-${nextEntityId}`;
+    nextEntityId += 1;
+    return id;
+  }
+
+  function normalizeLabel(value) {
+    return typeof value === "string" ? value.trim().replace(whitespacePattern, " ") : "";
+  }
 
   function normalizePriority(priority) {
     return priority === "high" ? "high" : defaultPriority;
@@ -32,31 +46,93 @@ document.addEventListener("DOMContentLoaded", () => {
     return typeof dueDate === "string" && dueDatePattern.test(dueDate) ? dueDate : "";
   }
 
+  function normalizeTags(tags) {
+    const sourceTags = Array.isArray(tags)
+      ? tags
+      : typeof tags === "string"
+        ? tags.split(",")
+        : [];
+    const normalizedTags = [];
+    const seenTags = new Set();
+
+    sourceTags.forEach((tag) => {
+      const normalizedTag = normalizeLabel(tag);
+      if (!normalizedTag) {
+        return;
+      }
+
+      const dedupeKey = normalizedTag.toLowerCase();
+      if (seenTags.has(dedupeKey)) {
+        return;
+      }
+
+      seenTags.add(dedupeKey);
+      normalizedTags.push(normalizedTag);
+    });
+
+    return normalizedTags;
+  }
+
+  function normalizeSubtask(subtask, taskId, index) {
+    if (!subtask || typeof subtask.title !== "string") {
+      return null;
+    }
+
+    const title = normalizeLabel(subtask.title);
+    if (!title) {
+      return null;
+    }
+
+    return {
+      id: typeof subtask.id === "string" || typeof subtask.id === "number"
+        ? String(subtask.id)
+        : `${taskId}-subtask-${index}`,
+      title,
+      completed: Boolean(subtask.completed)
+    };
+  }
+
+  function normalizeSubtasks(subtasks, taskId) {
+    if (!Array.isArray(subtasks)) {
+      return [];
+    }
+
+    return subtasks
+      .map((subtask, index) => normalizeSubtask(subtask, taskId, index))
+      .filter(Boolean);
+  }
+
   function normalizeTask(task, index) {
     if (!task || typeof task.text !== "string") {
       return null;
     }
 
-    const text = task.text.trim();
+    const text = normalizeLabel(task.text);
     if (!text) {
       return null;
     }
 
+    const id = typeof task.id === "string" || typeof task.id === "number"
+      ? String(task.id)
+      : `task-${index}`;
+
     return {
-      id: typeof task.id === "string" || typeof task.id === "number" ? task.id : `task-${index}`,
+      id,
       text,
       completed: Boolean(task.completed),
       priority: normalizePriority(task.priority),
-      dueDate: normalizeDueDate(task.dueDate)
+      dueDate: normalizeDueDate(task.dueDate),
+      tags: normalizeTags(task.tags),
+      subtasks: normalizeSubtasks(task.subtasks, id)
     };
   }
 
-  function normalizeTaskList(taskList) {
-    if (!Array.isArray(taskList)) {
+  function normalizeTaskList(taskListValue) {
+    if (!Array.isArray(taskListValue)) {
       return [];
     }
 
-    return taskList
+    return taskListValue
       .map((task, index) => normalizeTask(task, index))
       .filter(Boolean);
   }
@@ -108,6 +184,59 @@ document.addEventListener("DOMContentLoaded", () => {
     return dueDate ? `Due ${dueDate}` : "";
   }
 
+  function getSubtaskProgress(task) {
+    const total = task.subtasks.length;
+    const completed = task.subtasks.filter((subtask) => subtask.completed).length;
+
+    return { total, completed };
+  }
+
+  function getSubtaskProgressLabel(task) {
+    const { total, completed } = getSubtaskProgress(task);
+    return `${completed}/${total} subtasks done`;
+  }
+
+  function getSubtaskSummary(task) {
+    const { total, completed } = getSubtaskProgress(task);
+    if (total === 0) {
+      return "No subtasks yet. Add a few smaller wins to keep momentum high.";
+    }
+
+    if (completed === total) {
+      return "All subtasks completed. Keep the parent task open until the final outcome is done.";
+    }
+
+    return `${completed} of ${total} subtasks completed.`;
+  }
+
+  function getTagPalette(tag) {
+    let hash = 0;
+    const normalizedTag = tag.toLowerCase();
+
+    for (const character of normalizedTag) {
+      hash = ((hash * 31) + character.charCodeAt(0)) >>> 0;
+    }
+
+    const hue = hash % 360;
+
+    return {
+      backgroundColor: `hsl(${hue} 95% 94%)`,
+      borderColor: `hsl(${hue} 68% 80%)`,
+      color: `hsl(${hue} 52% 28%)`
+    };
+  }
+
+  function createTagChip(tag) {
+    const tagChip = document.createElement("span");
+    const palette = getTagPalette(tag);
+    tagChip.className = "task-chip task-tag";
+    tagChip.textContent = tag;
+    tagChip.style.backgroundColor = palette.backgroundColor;
+    tagChip.style.borderColor = palette.borderColor;
+    tagChip.style.color = palette.color;
+    return tagChip;
+  }
+
   function createTaskMeta(task) {
     const taskMeta = document.createElement("div");
     taskMeta.className = "task-meta";
@@ -127,6 +256,17 @@ document.addEventListener("DOMContentLoaded", () => {
       taskMeta.appendChild(dueDateChip);
     }
 
+    if (task.subtasks.length > 0) {
+      const subtaskProgressChip = document.createElement("span");
+      subtaskProgressChip.className = "task-chip subtask-progress-chip";
+      subtaskProgressChip.textContent = getSubtaskProgressLabel(task);
+      taskMeta.appendChild(subtaskProgressChip);
+    }
+
+    task.tags.forEach((tag) => {
+      taskMeta.appendChild(createTagChip(tag));
+    });
+
     return taskMeta.children.length > 0 ? taskMeta : null;
   }
 
@@ -134,21 +274,24 @@ document.addEventListener("DOMContentLoaded", () => {
     taskInput.value = "";
     priorityInput.value = defaultPriority;
     dueDateInput.value = "";
+    tagsInput.value = "";
   }
 
   function addTask() {
-    const text = taskInput.value.trim();
+    const text = normalizeLabel(taskInput.value);
     if (!text) {
       taskInput.focus();
       return;
     }
 
     tasks.push({
-      id: `${Date.now()}-${tasks.length}`,
+      id: createId("task"),
       text,
       completed: false,
       priority: normalizePriority(priorityInput.value),
-      dueDate: normalizeDueDate(dueDateInput.value)
+      dueDate: normalizeDueDate(dueDateInput.value),
+      tags: normalizeTags(tagsInput.value),
+      subtasks: []
     });
 
     saveTasks();
@@ -165,12 +308,82 @@ document.addEventListener("DOMContentLoaded", () => {
 
       return task;
     });
+
+    saveTasks();
+    renderTasks();
+  }
+
+  function toggleSubtask(taskId, subtaskId) {
+    tasks = tasks.map((task) => {
+      if (task.id !== taskId) {
+        return task;
+      }
+
+      return {
+        ...task,
+        subtasks: task.subtasks.map((subtask) => {
+          if (subtask.id === subtaskId) {
+            return { ...subtask, completed: !subtask.completed };
+          }
+
+          return subtask;
+        })
+      };
+    });
+
+    saveTasks();
+    renderTasks();
+  }
+
+  function addSubtask(taskId, title) {
+    const normalizedTitle = normalizeLabel(title);
+    if (!normalizedTitle) {
+      return false;
+    }
+
+    tasks = tasks.map((task) => {
+      if (task.id !== taskId) {
+        return task;
+      }
+
+      return {
+        ...task,
+        subtasks: [
+          ...task.subtasks,
+          {
+            id: createId(`${taskId}-subtask`),
+            title: normalizedTitle,
+            completed: false
+          }
+        ]
+      };
+    });
+
+    expandedTaskIds.add(taskId);
+    saveTasks();
+    renderTasks();
+    return true;
+  }
+
+  function deleteSubtask(taskId, subtaskId) {
+    tasks = tasks.map((task) => {
+      if (task.id !== taskId) {
+        return task;
+      }
+
+      return {
+        ...task,
+        subtasks: task.subtasks.filter((subtask) => subtask.id !== subtaskId)
+      };
+    });
+
     saveTasks();
     renderTasks();
   }
 
   function deleteTask(taskId) {
     tasks = tasks.filter((task) => task.id !== taskId);
+    expandedTaskIds.delete(taskId);
 
     if (editingTaskId === taskId) {
       editingTaskId = null;
@@ -178,6 +391,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     saveTasks();
+    renderTasks();
+  }
+
+  function toggleTaskDetails(taskId) {
+    if (expandedTaskIds.has(taskId)) {
+      expandedTaskIds.delete(taskId);
+    } else {
+      expandedTaskIds.add(taskId);
+    }
+
     renderTasks();
   }
 
@@ -199,7 +422,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function saveEdit(taskId) {
-    const nextText = editDraft.trim();
+    const nextText = normalizeLabel(editDraft);
     if (!nextText) {
       return;
     }
@@ -223,7 +446,11 @@ document.addEventListener("DOMContentLoaded", () => {
       return true;
     }
 
-    return task.text.toLowerCase().includes(searchQuery);
+    return [
+      task.text,
+      ...task.tags,
+      ...task.subtasks.map((subtask) => subtask.title)
+    ].some((value) => value.toLowerCase().includes(searchQuery));
   }
 
   function matchesFilter(task) {
@@ -266,6 +493,99 @@ document.addEventListener("DOMContentLoaded", () => {
     return "No tasks match the current search or filter.";
   }
 
+  function createTaskDetails(task) {
+    const taskDetails = document.createElement("div");
+    taskDetails.className = "task-details";
+
+    const detailsHeader = document.createElement("div");
+    detailsHeader.className = "task-details-header";
+
+    const detailsTitle = document.createElement("p");
+    detailsTitle.className = "task-details-title";
+    detailsTitle.textContent = "Subtasks";
+
+    const detailsSummary = document.createElement("p");
+    detailsSummary.className = "task-details-summary";
+    detailsSummary.textContent = getSubtaskSummary(task);
+
+    detailsHeader.appendChild(detailsTitle);
+    detailsHeader.appendChild(detailsSummary);
+    taskDetails.appendChild(detailsHeader);
+
+    const subtaskEditor = document.createElement("div");
+    subtaskEditor.className = "subtask-editor";
+
+    const subtaskInput = document.createElement("input");
+    subtaskInput.className = "subtask-input";
+    subtaskInput.type = "text";
+    subtaskInput.placeholder = "Add a subtask";
+    subtaskInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+
+        if (addSubtask(task.id, subtaskInput.value)) {
+          return;
+        }
+
+        subtaskInput.focus();
+      }
+    });
+
+    const addSubtaskButton = document.createElement("button");
+    addSubtaskButton.className = "secondary-btn";
+    addSubtaskButton.type = "button";
+    addSubtaskButton.textContent = "Add subtask";
+    addSubtaskButton.addEventListener("click", () => {
+      if (!addSubtask(task.id, subtaskInput.value)) {
+        subtaskInput.focus();
+      }
+    });
+
+    subtaskEditor.appendChild(subtaskInput);
+    subtaskEditor.appendChild(addSubtaskButton);
+    taskDetails.appendChild(subtaskEditor);
+
+    if (task.subtasks.length === 0) {
+      const emptySubtasks = document.createElement("p");
+      emptySubtasks.className = "subtask-empty";
+      emptySubtasks.textContent = "No subtasks yet. Break this into smaller, clear steps.";
+      taskDetails.appendChild(emptySubtasks);
+      return taskDetails;
+    }
+
+    const subtaskList = document.createElement("ul");
+    subtaskList.className = "subtask-list";
+
+    task.subtasks.forEach((subtask) => {
+      const subtaskItem = document.createElement("li");
+      subtaskItem.className = `subtask-item${subtask.completed ? " completed" : ""}`;
+
+      const subtaskToggle = document.createElement("input");
+      subtaskToggle.className = "subtask-toggle";
+      subtaskToggle.type = "checkbox";
+      subtaskToggle.checked = subtask.completed;
+      subtaskToggle.addEventListener("change", () => toggleSubtask(task.id, subtask.id));
+
+      const subtaskText = document.createElement("span");
+      subtaskText.className = "subtask-text";
+      subtaskText.textContent = subtask.title;
+
+      const removeSubtaskButton = document.createElement("button");
+      removeSubtaskButton.className = "secondary-btn subtask-remove";
+      removeSubtaskButton.type = "button";
+      removeSubtaskButton.textContent = "Remove";
+      removeSubtaskButton.addEventListener("click", () => deleteSubtask(task.id, subtask.id));
+
+      subtaskItem.appendChild(subtaskToggle);
+      subtaskItem.appendChild(subtaskText);
+      subtaskItem.appendChild(removeSubtaskButton);
+      subtaskList.appendChild(subtaskItem);
+    });
+
+    taskDetails.appendChild(subtaskList);
+    return taskDetails;
+  }
+
   function renderTasks() {
     const visibleTasks = getVisibleTasks();
     taskList.innerHTML = "";
@@ -281,6 +601,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     visibleTasks.forEach((task) => {
       const isEditing = editingTaskId === task.id;
+      const isExpanded = expandedTaskIds.has(task.id);
       const taskRow = document.createElement("div");
       taskRow.className = `task-item${task.completed ? " completed" : ""}${task.priority === "high" ? " priority-high" : ""}`;
 
@@ -345,14 +666,26 @@ document.addEventListener("DOMContentLoaded", () => {
       taskText.textContent = task.text;
       taskText.addEventListener("click", () => toggleTask(task.id));
 
+      const detailsToggle = document.createElement("button");
+      detailsToggle.className = "secondary-btn details-toggle";
+      detailsToggle.type = "button";
+      detailsToggle.textContent = isExpanded ? "Hide details" : task.subtasks.length > 0 ? "Show details" : "Add subtasks";
+      detailsToggle.ariaExpanded = String(isExpanded);
+      detailsToggle.addEventListener("click", () => toggleTaskDetails(task.id));
+
       const taskHeader = document.createElement("div");
       taskHeader.className = "task-header";
       taskHeader.appendChild(taskText);
+      taskHeader.appendChild(detailsToggle);
       taskContent.appendChild(taskHeader);
 
       const taskMeta = createTaskMeta(task);
       if (taskMeta) {
         taskContent.appendChild(taskMeta);
+      }
+
+      if (isExpanded) {
+        taskContent.appendChild(createTaskDetails(task));
       }
 
       const editButton = document.createElement("button");
@@ -390,6 +723,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
   dueDateInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addTask();
+    }
+  });
+  tagsInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
       addTask();
