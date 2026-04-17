@@ -826,3 +826,283 @@ test("save failures are logged without blocking in-memory task updates", () => {
   assert.equal(getTaskText(taskRows[0]).textContent, "Write backup plan");
   assert.deepEqual(loggedErrors, ["Failed to save tasks from localStorage.".replace("from", "to")]);
 });
+
+test("legacy storage strips unsupported task fields while normalizing priorities and due dates", () => {
+  const { taskList, localStorage } = createAppHarness({
+    storageState: {
+      tasks: JSON.stringify([
+        {
+          id: "priority-low",
+          text: "Low lane",
+          completed: 0,
+          priority: "low",
+          dueDate: null,
+          createdAt: "2026-04-16T09:00:00.000Z",
+          updatedAt: "2026-04-16T11:00:00.000Z",
+          tags: ["Home", "home", ""],
+          subtasks: []
+        },
+        {
+          id: "priority-normal",
+          text: "Normal lane",
+          completed: 1,
+          priority: "normal",
+          dueDate: "2026-04-17",
+          createdAt: 1713344400000,
+          updatedAt: null,
+          tags: [],
+          subtasks: []
+        },
+        {
+          id: "priority-medium",
+          text: "Medium lane",
+          completed: false,
+          priority: "medium",
+          dueDate: "2026/04/17",
+          tags: ["Focus"],
+          subtasks: []
+        },
+        {
+          id: "priority-high",
+          text: "High lane",
+          completed: false,
+          priority: "high",
+          dueDate: "2026-04-18",
+          title: "This title should not be persisted",
+          tags: [],
+          subtasks: []
+        },
+        {
+          id: "title-only-task",
+          title: "Title only task",
+          completed: false,
+          priority: "high"
+        }
+      ])
+    }
+  });
+
+  const taskRows = getTaskRows(taskList);
+  assert.equal(taskRows.length, 4);
+  assert.equal(getTaskText(taskRows[0]).textContent, "Low lane");
+  assert.equal(getPriorityBadge(taskRows[0]), null);
+  assert.equal(getDueDateChip(taskRows[0]), null);
+  assert.deepEqual(getTagChips(taskRows[0]).map((chip) => chip.textContent), ["Home"]);
+
+  assert.equal(getTaskText(taskRows[1]).textContent, "Normal lane");
+  assert.match(taskRows[1].className, /\bcompleted\b/);
+  assert.equal(getPriorityBadge(taskRows[1]), null);
+  assert.equal(getDueDateChip(taskRows[1]).textContent, "Due 2026-04-17");
+
+  assert.equal(getTaskText(taskRows[2]).textContent, "Medium lane");
+  assert.equal(getPriorityBadge(taskRows[2]), null);
+  assert.equal(getDueDateChip(taskRows[2]), null);
+
+  assert.equal(getTaskText(taskRows[3]).textContent, "High lane");
+  assert.equal(getPriorityBadge(taskRows[3]).textContent, "High priority");
+  assert.equal(getDueDateChip(taskRows[3]).textContent, "Due 2026-04-18");
+
+  getToggle(taskRows[0]).dispatchEvent({ type: "change" });
+
+  assert.deepEqual(JSON.parse(localStorage.getItem("tasks")), [
+    {
+      id: "priority-low",
+      text: "Low lane",
+      completed: true,
+      priority: "normal",
+      dueDate: "",
+      tags: ["Home"],
+      subtasks: []
+    },
+    {
+      id: "priority-normal",
+      text: "Normal lane",
+      completed: true,
+      priority: "normal",
+      dueDate: "2026-04-17",
+      tags: [],
+      subtasks: []
+    },
+    {
+      id: "priority-medium",
+      text: "Medium lane",
+      completed: false,
+      priority: "normal",
+      dueDate: "",
+      tags: ["Focus"],
+      subtasks: []
+    },
+    {
+      id: "priority-high",
+      text: "High lane",
+      completed: false,
+      priority: "high",
+      dueDate: "2026-04-18",
+      tags: [],
+      subtasks: []
+    }
+  ]);
+});
+
+test("subtask add and remove flows keep empty states and progress chips in sync", () => {
+  const { taskInput, addBtn, taskList, document } = createAppHarness();
+
+  taskInput.value = "Plan conference";
+  addBtn.click();
+
+  getDetailsToggle(getTaskRows(taskList)[0]).click();
+  let currentRow = getTaskRows(taskList)[0];
+  assert.equal(findByClassName(getTaskDetails(currentRow), "task-details-summary").textContent, "No subtasks yet. Add a few smaller wins to keep momentum high.");
+  assert.equal(findByClassName(getTaskDetails(currentRow), "subtask-empty").textContent, "No subtasks yet. Break this into smaller, clear steps.");
+  assert.equal(getSubtaskProgressChip(currentRow), null);
+
+  let subtaskInput = getSubtaskInput(currentRow);
+  subtaskInput.value = "   ";
+  findButtonByText(currentRow, "Add subtask").click();
+  assert.equal(document.activeElement, subtaskInput);
+  assert.equal(getSubtaskRows(getTaskRows(taskList)[0]).length, 0);
+
+  subtaskInput.value = "Confirm venue";
+  findButtonByText(currentRow, "Add subtask").click();
+
+  currentRow = getTaskRows(taskList)[0];
+  subtaskInput = getSubtaskInput(currentRow);
+  subtaskInput.value = "Send invites";
+  subtaskInput.dispatchEvent({ type: "keydown", key: "Enter" });
+
+  currentRow = getTaskRows(taskList)[0];
+  assert.equal(getSubtaskRows(currentRow).length, 2);
+  assert.equal(getSubtaskProgressChip(currentRow).textContent, "0/2 subtasks done");
+
+  getRemoveSubtaskButton(getSubtaskRows(currentRow)[0]).click();
+  currentRow = getTaskRows(taskList)[0];
+  assert.equal(getSubtaskRows(currentRow).length, 1);
+  assert.equal(getSubtaskText(getSubtaskRows(currentRow)[0]).textContent, "Send invites");
+  assert.equal(getSubtaskProgressChip(currentRow).textContent, "0/1 subtasks done");
+
+  getRemoveSubtaskButton(getSubtaskRows(currentRow)[0]).click();
+  currentRow = getTaskRows(taskList)[0];
+  assert.equal(getSubtaskRows(currentRow).length, 0);
+  assert.equal(getSubtaskProgressChip(currentRow), null);
+  assert.equal(findByClassName(getTaskDetails(currentRow), "subtask-empty").textContent, "No subtasks yet. Break this into smaller, clear steps.");
+});
+
+test("subtask progress summaries cover partial and fully completed checklist states", () => {
+  const { taskList } = createAppHarness({
+    storageState: {
+      tasks: JSON.stringify([
+        {
+          id: "launch-plan",
+          text: "Ship release",
+          completed: false,
+          priority: "high",
+          dueDate: "2026-04-17",
+          tags: ["Release"],
+          subtasks: [
+            { id: "qa", title: "QA signoff", completed: true },
+            { id: "copy", title: "Publish copy", completed: false },
+            { id: "support", title: "Brief support", completed: false }
+          ]
+        }
+      ])
+    }
+  });
+
+  let currentRow = getTaskRows(taskList)[0];
+  assert.equal(getSubtaskProgressChip(currentRow).textContent, "1/3 subtasks done");
+
+  getDetailsToggle(currentRow).click();
+  currentRow = getTaskRows(taskList)[0];
+  assert.equal(findByClassName(getTaskDetails(currentRow), "task-details-summary").textContent, "1 of 3 subtasks completed.");
+
+  getSubtaskToggle(getSubtaskRows(currentRow)[1]).dispatchEvent({ type: "change" });
+  currentRow = getTaskRows(taskList)[0];
+  assert.equal(getSubtaskProgressChip(currentRow).textContent, "2/3 subtasks done");
+  assert.equal(findByClassName(getTaskDetails(currentRow), "task-details-summary").textContent, "2 of 3 subtasks completed.");
+
+  getSubtaskToggle(getSubtaskRows(currentRow)[2]).dispatchEvent({ type: "change" });
+  currentRow = getTaskRows(taskList)[0];
+  assert.equal(getSubtaskProgressChip(currentRow).textContent, "3/3 subtasks done");
+  assert.equal(findByClassName(getTaskDetails(currentRow), "task-details-summary").textContent, "All subtasks completed. Keep the parent task open until the final outcome is done.");
+  assert.doesNotMatch(currentRow.className, /\bcompleted\b/);
+});
+
+test("search and filter controls stay case-insensitive and surface empty-state branches", () => {
+  const {
+    taskList,
+    searchInput,
+    filterActive,
+    filterCompleted,
+    filterHighPriority,
+    filterDueToday,
+    filterAll,
+    resultsSummary
+  } = createAppHarness({
+    storageState: {
+      tasks: JSON.stringify([
+        {
+          id: "workout",
+          text: "Morning workout",
+          completed: false,
+          priority: "low",
+          dueDate: null,
+          tags: ["Health"],
+          subtasks: []
+        },
+        {
+          id: "taxes",
+          text: "File taxes",
+          completed: true,
+          priority: "high",
+          dueDate: "2026-04-17",
+          tags: ["Finance"],
+          subtasks: []
+        },
+        {
+          id: "release",
+          text: "Ship release",
+          completed: false,
+          priority: "high",
+          dueDate: "2026-04-17",
+          tags: ["Work"],
+          subtasks: [
+            { id: "release-subtask-1", title: "QA signoff", completed: false }
+          ]
+        }
+      ])
+    }
+  });
+
+  searchInput.value = "  SIGNOFF  ";
+  searchInput.dispatchEvent({ type: "input" });
+  assert.deepEqual(getTaskRows(taskList).map((taskRow) => getTaskText(taskRow).textContent), ["Ship release"]);
+
+  searchInput.value = "finance";
+  searchInput.dispatchEvent({ type: "input" });
+  assert.deepEqual(getTaskRows(taskList).map((taskRow) => getTaskText(taskRow).textContent), ["File taxes"]);
+
+  searchInput.value = "missing";
+  searchInput.dispatchEvent({ type: "input" });
+  assert.equal(getTaskRows(taskList).length, 0);
+  assert.equal(taskList.children[0].className, "empty-state");
+  assert.equal(taskList.children[0].textContent, "No tasks match the current search or filter.");
+
+  searchInput.value = "";
+  searchInput.dispatchEvent({ type: "input" });
+
+  filterActive.click();
+  assert.deepEqual(getTaskRows(taskList).map((taskRow) => getTaskText(taskRow).textContent), ["Morning workout", "Ship release"]);
+
+  filterCompleted.click();
+  assert.deepEqual(getTaskRows(taskList).map((taskRow) => getTaskText(taskRow).textContent), ["File taxes"]);
+
+  filterHighPriority.click();
+  assert.deepEqual(getTaskRows(taskList).map((taskRow) => getTaskText(taskRow).textContent), ["File taxes", "Ship release"]);
+
+  filterDueToday.click();
+  assert.deepEqual(getTaskRows(taskList).map((taskRow) => getTaskText(taskRow).textContent), ["File taxes", "Ship release"]);
+  assert.equal(resultsSummary.textContent, "Showing 2 of 3 tasks · 1 completed");
+
+  filterAll.click();
+  assert.equal(getTaskRows(taskList).length, 3);
+});
