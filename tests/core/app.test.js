@@ -516,8 +516,8 @@ test("tasks persist across refreshes through localStorage", () => {
   assert.equal(secondPage.taskList.children[0].className, "task-item priority-high");
 });
 
-test("task storage stays anchored to the tasks key and normalizes supported metadata", () => {
-  const { taskList, localStorage } = createAppHarness({
+test("task storage stays anchored to the tasks key and normalizes legacy metadata for render filtering and save", () => {
+  const { taskList, localStorage, filterDueToday, filterAll } = createAppHarness({
     storageState: {
       tasks: JSON.stringify([
         {
@@ -525,15 +525,20 @@ test("task storage stays anchored to the tasks key and normalizes supported meta
           text: "  Plan trip  ",
           completed: 0,
           priority: "high",
-          dueDate: "2026-05-01",
+          dueDate: "2026-04-17",
           tags: ["travel"]
         },
         {
           id: "beta",
           text: "Inbox zero",
+          completed: false
+        },
+        {
+          id: "gamma",
+          text: "Review budget",
           completed: false,
-          priority: "urgent",
-          dueDate: "tomorrow"
+          priority: "high",
+          dueDate: "2026-5-01"
         },
         {
           id: "missing-text",
@@ -544,10 +549,17 @@ test("task storage stays anchored to the tasks key and normalizes supported meta
   });
 
   const taskRows = getTaskRows(taskList);
-  assert.equal(taskRows.length, 2);
+  assert.equal(taskRows.length, 3);
   assert.equal(getTaskText(taskRows[0]).textContent, "Plan trip");
-  assert.equal(getTaskMeta(taskRows[0]).textContent, "High priority · Due 2026-05-01");
+  assert.equal(getTaskMeta(taskRows[0]).textContent, "High priority · Due 2026-04-17");
   assert.equal(getTaskMeta(taskRows[1]), null);
+  assert.equal(getTaskMeta(taskRows[2]).textContent, "High priority");
+
+  filterDueToday.click();
+  assert.equal(getTaskRows(taskList).length, 1);
+  assert.equal(getTaskText(getTaskRows(taskList)[0]).textContent, "Plan trip");
+
+  filterAll.click();
 
   getToggle(taskRows[0]).dispatchEvent({ type: "change" });
 
@@ -557,13 +569,20 @@ test("task storage stays anchored to the tasks key and normalizes supported meta
       text: "Plan trip",
       completed: true,
       priority: "high",
-      dueDate: "2026-05-01"
+      dueDate: "2026-04-17"
     },
     {
       id: "beta",
       text: "Inbox zero",
       completed: false,
       priority: "normal",
+      dueDate: ""
+    },
+    {
+      id: "gamma",
+      text: "Review budget",
+      completed: false,
+      priority: "high",
       dueDate: ""
     }
   ]);
