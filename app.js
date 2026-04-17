@@ -16,12 +16,21 @@ document.addEventListener("DOMContentLoaded", () => {
     { key: "due-today", element: document.getElementById("filterDueToday") }
   ];
   const defaultPriority = "normal";
+  const dueDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
   let tasks = loadTasks();
   let activeFilter = "all";
   let searchQuery = "";
   let editingTaskId = null;
   let editDraft = "";
+
+  function normalizePriority(priority) {
+    return priority === "high" ? "high" : defaultPriority;
+  }
+
+  function normalizeDueDate(dueDate) {
+    return typeof dueDate === "string" && dueDatePattern.test(dueDate) ? dueDate : "";
+  }
 
   function normalizeTask(task, index) {
     if (!task || typeof task.text !== "string") {
@@ -37,9 +46,19 @@ document.addEventListener("DOMContentLoaded", () => {
       id: typeof task.id === "string" || typeof task.id === "number" ? task.id : `task-${index}`,
       text,
       completed: Boolean(task.completed),
-      priority: task.priority === "high" ? "high" : defaultPriority,
-      dueDate: typeof task.dueDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(task.dueDate) ? task.dueDate : ""
+      priority: normalizePriority(task.priority),
+      dueDate: normalizeDueDate(task.dueDate)
     };
+  }
+
+  function normalizeTaskList(taskList) {
+    if (!Array.isArray(taskList)) {
+      return [];
+    }
+
+    return taskList
+      .map((task, index) => normalizeTask(task, index))
+      .filter(Boolean);
   }
 
   function loadTasks() {
@@ -50,13 +69,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const parsedTasks = JSON.parse(savedTasks);
-      if (!Array.isArray(parsedTasks)) {
-        return [];
-      }
-
-      return parsedTasks
-        .map((task, index) => normalizeTask(task, index))
-        .filter(Boolean);
+      return normalizeTaskList(parsedTasks);
     } catch (error) {
       console.error("Failed to load tasks from localStorage.", error);
       return [];
@@ -64,8 +77,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function saveTasks() {
+    const normalizedTasks = normalizeTaskList(tasks);
+    tasks = normalizedTasks;
+
     try {
-      localStorage.setItem(storageKey, JSON.stringify(tasks));
+      localStorage.setItem(storageKey, JSON.stringify(normalizedTasks));
     } catch (error) {
       console.error("Failed to save tasks to localStorage.", error);
     }
@@ -79,6 +95,19 @@ document.addEventListener("DOMContentLoaded", () => {
     return `${year}-${month}-${day}`;
   }
 
+  function getTaskDueDate(task) {
+    return normalizeDueDate(task && task.dueDate);
+  }
+
+  function isTaskDueToday(task) {
+    return getTaskDueDate(task) === getTodayKey();
+  }
+
+  function getTaskDueDateLabel(task) {
+    const dueDate = getTaskDueDate(task);
+    return dueDate ? `Due ${dueDate}` : "";
+  }
+
   function buildMetaText(task) {
     const details = [];
 
@@ -86,8 +115,9 @@ document.addEventListener("DOMContentLoaded", () => {
       details.push("High priority");
     }
 
-    if (task.dueDate) {
-      details.push(`Due ${task.dueDate}`);
+    const dueDateLabel = getTaskDueDateLabel(task);
+    if (dueDateLabel) {
+      details.push(dueDateLabel);
     }
 
     return details.join(" · ");
@@ -110,8 +140,8 @@ document.addEventListener("DOMContentLoaded", () => {
       id: `${Date.now()}-${tasks.length}`,
       text,
       completed: false,
-      priority: priorityInput.value === "high" ? "high" : defaultPriority,
-      dueDate: dueDateInput.value
+      priority: normalizePriority(priorityInput.value),
+      dueDate: normalizeDueDate(dueDateInput.value)
     });
 
     saveTasks();
@@ -198,7 +228,7 @@ document.addEventListener("DOMContentLoaded", () => {
       case "high-priority":
         return task.priority === "high";
       case "due-today":
-        return task.dueDate === getTodayKey();
+        return isTaskDueToday(task);
       default:
         return true;
     }
