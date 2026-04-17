@@ -296,6 +296,14 @@ function getTaskMeta(taskRow) {
   return findByClassName(taskRow, "task-meta");
 }
 
+function getPriorityBadge(taskRow) {
+  return findByClassName(taskRow, "priority-badge");
+}
+
+function getDueDateChip(taskRow) {
+  return findByClassName(taskRow, "due-date-chip");
+}
+
 function getDeleteButton(taskRow) {
   return findButtonByText(taskRow, "Delete");
 }
@@ -357,7 +365,8 @@ test("adding a task with the button preserves priority and due date metadata", (
   const taskRows = getTaskRows(taskList);
   assert.equal(taskRows.length, 1);
   assert.equal(getTaskText(taskRows[0]).textContent, "Buy groceries");
-  assert.equal(getTaskMeta(taskRows[0]).textContent, "High priority · Due 2026-04-17");
+  assert.equal(getPriorityBadge(taskRows[0]).textContent, "High priority");
+  assert.equal(getDueDateChip(taskRows[0]).textContent, "Due 2026-04-17");
 
   const savedTasks = JSON.parse(localStorage.getItem("tasks"));
   assert.equal(savedTasks.length, 1);
@@ -512,7 +521,8 @@ test("tasks persist across refreshes through localStorage", () => {
 
   assert.equal(taskRows.length, 1);
   assert.equal(getTaskText(taskRows[0]).textContent, "Plan weekend trip");
-  assert.equal(getTaskMeta(taskRows[0]).textContent, "High priority · Due 2026-04-17");
+  assert.equal(getPriorityBadge(taskRows[0]).textContent, "High priority");
+  assert.equal(getDueDateChip(taskRows[0]).textContent, "Due 2026-04-17");
   assert.equal(secondPage.taskList.children[0].className, "task-item priority-high");
 });
 
@@ -551,9 +561,11 @@ test("task storage stays anchored to the tasks key and normalizes legacy metadat
   const taskRows = getTaskRows(taskList);
   assert.equal(taskRows.length, 3);
   assert.equal(getTaskText(taskRows[0]).textContent, "Plan trip");
-  assert.equal(getTaskMeta(taskRows[0]).textContent, "High priority · Due 2026-04-17");
+  assert.equal(getPriorityBadge(taskRows[0]).textContent, "High priority");
+  assert.equal(getDueDateChip(taskRows[0]).textContent, "Due 2026-04-17");
   assert.equal(getTaskMeta(taskRows[1]), null);
-  assert.equal(getTaskMeta(taskRows[2]).textContent, "High priority");
+  assert.equal(getPriorityBadge(taskRows[2]).textContent, "High priority");
+  assert.equal(getDueDateChip(taskRows[2]), null);
 
   filterDueToday.click();
   assert.equal(getTaskRows(taskList).length, 1);
@@ -592,6 +604,10 @@ test("html and css expose the new control scaffold and task editing seams", () =
   const html = fs.readFileSync(indexPath, "utf8");
   const css = fs.readFileSync(stylePath, "utf8");
 
+  assert.match(html, /class="app-shell"/);
+  assert.match(html, /class="composer-card"/);
+  assert.match(html, /class="controls-card toolbar"/);
+  assert.match(html, /class="task-list"/);
   assert.match(html, /id="searchInput"/);
   assert.match(html, /id="clearSearchBtn"/);
   assert.match(html, /id="filterHighPriority"/);
@@ -600,12 +616,16 @@ test("html and css expose the new control scaffold and task editing seams", () =
   assert.match(html, /id="dueDateInput"/);
   assert.match(html, /id="resultsSummary"/);
 
+  assert.match(css, /:root\s*\{/);
   assert.match(css, /\.toolbar\s*\{/);
   assert.match(css, /\.filter-btn\.active\s*\{/);
   assert.match(css, /\.task-content\s*\{/);
   assert.match(css, /\.task-meta\s*\{/);
+  assert.match(css, /\.task-badge,\s*[\r\n]+\s*\.task-chip\s*\{/);
+  assert.match(css, /\.due-date-chip\s*\{/);
+  assert.match(css, /\.empty-state::before\s*\{/);
   assert.match(css, /\.edit-input\s*\{/);
-  assert.match(css, /\.task-item\.priority-high\s*\{/);
+  assert.match(css, /\.task-item\.priority-high::before\s*\{/);
 });
 
 test("invalid saved task data falls back to a safe empty state and logs the load error", () => {
