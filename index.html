@@ -8,31 +8,48 @@
 </head>
 <body>
   <main class="app-shell">
-    <section class="container">
+    <section class="container" aria-labelledby="appTitle">
       <header class="page-header">
-        <h1>Todo List</h1>
-        <p class="subtitle">Capture what matters, find it instantly, and stay focused on the right next task.</p>
+        <h1 id="appTitle">Todo List</h1>
+        <p class="subtitle">Capture what matters, keep it ordered, and move through every task with the same confidence on keyboard, touch, or pointer.</p>
       </header>
-      <section class="composer-card" aria-label="Add a task">
+
+      <section class="composer-card" aria-labelledby="composerHeading">
+        <h2 id="composerHeading" class="sr-only">Add a task</h2>
         <div class="input-row">
+          <label for="taskInput" class="sr-only">Task description</label>
           <input type="text" id="taskInput" placeholder="What needs to get done?" aria-label="Task description">
+
+          <label for="priorityInput" class="sr-only">Task priority</label>
           <select id="priorityInput" aria-label="Task priority">
             <option value="normal">Normal Priority</option>
             <option value="high">High Priority</option>
           </select>
+
+          <label for="dueDateInput" class="sr-only">Task due date</label>
           <input type="date" id="dueDateInput" aria-label="Task due date">
+
           <button id="addBtn" type="button">Add Task</button>
         </div>
+
         <div class="composer-secondary">
-          <input type="text" id="tagsInput" placeholder="Tags, separated by commas" aria-label="Task tags">
-          <p class="composer-hint">Add tags up front, then open any task to build a focused subtask checklist.</p>
+          <div class="field-stack">
+            <label for="tagsInput" class="sr-only">Task tags</label>
+            <input type="text" id="tagsInput" placeholder="Tags, separated by commas" aria-label="Task tags">
+          </div>
+          <p class="composer-hint">Press Enter to save a task from any composer field. Open any task to add subtasks, reorder it, or work with bulk selection.</p>
         </div>
       </section>
-      <section class="controls-card toolbar" aria-label="Todo controls">
+
+      <section class="controls-card toolbar" aria-labelledby="controlsHeading">
+        <h2 id="controlsHeading" class="sr-only">Search, filter, and bulk task actions</h2>
+
         <div class="search-row">
+          <label for="searchInput" class="sr-only">Search tasks</label>
           <input type="search" id="searchInput" placeholder="Search tasks live" aria-label="Search tasks">
           <button id="clearSearchBtn" type="button">Clear Search</button>
         </div>
+
         <div class="filter-row" role="toolbar" aria-label="Task filters">
           <button id="filterAll" class="filter-btn active" type="button" aria-pressed="true">All</button>
           <button id="filterActive" class="filter-btn" type="button" aria-pressed="false">Active</button>
@@ -40,9 +57,24 @@
           <button id="filterHighPriority" class="filter-btn" type="button" aria-pressed="false">High Priority</button>
           <button id="filterDueToday" class="filter-btn" type="button" aria-pressed="false">Due Today</button>
         </div>
+
+        <div id="bulkToolbar" class="bulk-toolbar" role="toolbar" aria-label="Task selection and bulk actions" aria-controls="taskList">
+          <p id="selectionSummary" class="selection-summary" role="status" aria-live="polite">No tasks selected</p>
+          <div class="bulk-actions">
+            <button id="toggleSelectAllBtn" class="secondary-btn" type="button">Select all visible</button>
+            <button id="clearSelectionBtn" class="secondary-btn" type="button">Clear selection</button>
+            <button id="bulkCompleteBtn" class="secondary-btn" type="button">Mark selected complete</button>
+            <button id="bulkDeleteBtn" class="delete-btn" type="button">Delete selected</button>
+          </div>
+        </div>
       </section>
-      <p id="resultsSummary" class="results-summary" aria-live="polite"></p>
-      <div id="taskList" class="task-list" aria-live="polite"></div>
+
+      <p id="stateBanner" class="state-banner" hidden></p>
+      <p id="resultsSummary" class="results-summary" role="status" aria-live="polite"></p>
+      <p id="keyboardHelp" class="keyboard-help">Keyboard help: Enter saves add and edit flows, Escape cancels editing or closes open subtask panels, Escape clears live search or bulk selection, and Alt plus Arrow Up or Arrow Down reorders the focused task.</p>
+      <div id="statusLiveRegion" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+      <div id="alertLiveRegion" class="sr-only" role="alert" aria-live="assertive" aria-atomic="true"></div>
+      <div id="taskList" class="task-list" role="list" aria-describedby="keyboardHelp resultsSummary"></div>
     </section>
   </main>
   <script src="app.js"></script>

@@ -6,8 +6,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const addBtn = document.getElementById("addBtn");
   const searchInput = document.getElementById("searchInput");
   const clearSearchBtn = document.getElementById("clearSearchBtn");
+  const toggleSelectAllBtn = document.getElementById("toggleSelectAllBtn");
+  const clearSelectionBtn = document.getElementById("clearSelectionBtn");
+  const bulkCompleteBtn = document.getElementById("bulkCompleteBtn");
+  const bulkDeleteBtn = document.getElementById("bulkDeleteBtn");
+  const selectionSummary = document.getElementById("selectionSummary");
+  const stateBanner = document.getElementById("stateBanner");
   const resultsSummary = document.getElementById("resultsSummary");
   const taskList = document.getElementById("taskList");
+  const statusLiveRegion = document.getElementById("statusLiveRegion");
+  const alertLiveRegion = document.getElementById("alertLiveRegion");
+  const bulkToolbar = document.getElementById("bulkToolbar");
   const storageKey = "tasks";
   const filterButtons = [
     { key: "all", element: document.getElementById("filterAll") },
@@ -26,7 +35,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let searchQuery = "";
   let editingTaskId = null;
   let editDraft = "";
+  let pendingFocus = null;
   const expandedTaskIds = new Set();
+  const selectedTaskIds = new Set();
 
   function createId(prefix) {
     const id = `${prefix}-${nextEntityId}`;
@@ -144,8 +155,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return [];
       }
 
-      const parsedTasks = JSON.parse(savedTasks);
-      return normalizeTaskList(parsedTasks);
+      return normalizeTaskList(JSON.parse(savedTasks));
     } catch (error) {
       console.error("Failed to load tasks from localStorage.", error);
       return [];
@@ -161,6 +171,99 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) {
       console.error("Failed to save tasks to localStorage.", error);
     }
+  }
+
+  function hasClassName(node, className) {
+    return typeof node.className === "string" && node.className.split(/\s+/).includes(className);
+  }
+
+  function findElement(rootNode, predicate) {
+    if (!rootNode) {
+      return null;
+    }
+
+    if (predicate(rootNode)) {
+      return rootNode;
+    }
+
+    for (const child of rootNode.children || []) {
+      const match = findElement(child, predicate);
+      if (match) {
+        return match;
+      }
+    }
+
+    return null;
+  }
+
+  function findDescendantByClassName(rootNode, className) {
+    return findElement(rootNode, (node) => hasClassName(node, className));
+  }
+
+  function findTaskRow(taskId) {
+    return findElement(taskList, (node) => hasClassName(node, "task-item") && node.taskId === taskId);
+  }
+
+  function setPendingFocus(target) {
+    pendingFocus = target;
+  }
+
+  function resolvePendingFocus() {
+    if (!pendingFocus) {
+      return null;
+    }
+
+    const currentTarget = pendingFocus;
+    pendingFocus = null;
+
+    switch (currentTarget.type) {
+      case "task-input":
+        return taskInput;
+      case "search-input":
+        return searchInput;
+      case "select-all":
+        return toggleSelectAllBtn;
+      case "bulk-complete":
+        return bulkCompleteBtn;
+      case "bulk-delete":
+        return bulkDeleteBtn;
+      case "task-row": {
+        const taskRow = findTaskRow(currentTarget.taskId);
+        return taskRow || taskInput;
+      }
+      case "task-action": {
+        const taskRow = findTaskRow(currentTarget.taskId);
+        if (!taskRow) {
+          return taskInput;
+        }
+
+        const targetNode = findDescendantByClassName(taskRow, currentTarget.className);
+        return targetNode || taskRow;
+      }
+      default:
+        return null;
+    }
+  }
+
+  function applyPendingFocus() {
+    const nextFocus = resolvePendingFocus();
+    if (nextFocus && typeof nextFocus.focus === "function") {
+      nextFocus.focus();
+    }
+  }
+
+  function announce(message, priority) {
+    const isAlert = priority === "alert";
+    const target = isAlert ? alertLiveRegion : statusLiveRegion;
+    const resetTarget = isAlert ? statusLiveRegion : alertLiveRegion;
+
+    resetTarget.textContent = "";
+    target.textContent = "";
+    target.textContent = message;
+  }
+
+  function pluralize(count, singular, plural) {
+    return count === 1 ? singular : plural;
   }
 
   function getTodayKey() {
@@ -187,7 +290,6 @@ document.addEventListener("DOMContentLoaded", () => {
   function getSubtaskProgress(task) {
     const total = task.subtasks.length;
     const completed = task.subtasks.filter((subtask) => subtask.completed).length;
-
     return { total, completed };
   }
 
@@ -270,6 +372,27 @@ document.addEventListener("DOMContentLoaded", () => {
     return taskMeta.children.length > 0 ? taskMeta : null;
   }
 
+  function clearMissingTaskState() {
+    const knownTaskIds = new Set(tasks.map((task) => task.id));
+
+    selectedTaskIds.forEach((taskId) => {
+      if (!knownTaskIds.has(taskId)) {
+        selectedTaskIds.delete(taskId);
+      }
+    });
+
+    expandedTaskIds.forEach((taskId) => {
+      if (!knownTaskIds.has(taskId)) {
+        expandedTaskIds.delete(taskId);
+      }
+    });
+
+    if (editingTaskId && !knownTaskIds.has(editingTaskId)) {
+      editingTaskId = null;
+      editDraft = "";
+    }
+  }
+
   function resetComposer() {
     taskInput.value = "";
     priorityInput.value = defaultPriority;
@@ -281,6 +404,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const text = normalizeLabel(taskInput.value);
     if (!text) {
       taskInput.focus();
+      announce("Task description is required before adding a task.", "alert");
       return;
     }
 
@@ -296,57 +420,97 @@ document.addEventListener("DOMContentLoaded", () => {
 
     saveTasks();
     resetComposer();
+    setPendingFocus({ type: "task-input" });
+    announce(`Added task ${text}.`);
     renderTasks();
-    taskInput.focus();
   }
 
   function toggleTask(taskId) {
+    let updatedTask = null;
+
     tasks = tasks.map((task) => {
       if (task.id === taskId) {
-        return { ...task, completed: !task.completed };
+        updatedTask = { ...task, completed: !task.completed };
+        return updatedTask;
       }
 
       return task;
     });
 
     saveTasks();
+    setPendingFocus({ type: "task-action", taskId, className: "task-toggle" });
+    if (updatedTask) {
+      announce(`${updatedTask.completed ? "Completed" : "Reopened"} ${updatedTask.text}.`);
+    }
+    renderTasks();
+  }
+
+  function toggleTaskSelection(taskId) {
+    const task = tasks.find((currentTask) => currentTask.id === taskId);
+    if (!task) {
+      return;
+    }
+
+    if (selectedTaskIds.has(taskId)) {
+      selectedTaskIds.delete(taskId);
+      announce(`Deselected ${task.text}.`);
+    } else {
+      selectedTaskIds.add(taskId);
+      announce(`Selected ${task.text}.`);
+    }
+
+    setPendingFocus({ type: "task-action", taskId, className: "selection-toggle" });
     renderTasks();
   }
 
   function toggleSubtask(taskId, subtaskId) {
+    let updatedTask = null;
+    let updatedSubtask = null;
+
     tasks = tasks.map((task) => {
       if (task.id !== taskId) {
         return task;
       }
 
-      return {
+      updatedTask = {
         ...task,
         subtasks: task.subtasks.map((subtask) => {
           if (subtask.id === subtaskId) {
-            return { ...subtask, completed: !subtask.completed };
+            updatedSubtask = { ...subtask, completed: !subtask.completed };
+            return updatedSubtask;
           }
 
           return subtask;
         })
       };
+
+      return updatedTask;
     });
 
     saveTasks();
+    expandedTaskIds.add(taskId);
+    setPendingFocus({ type: "task-action", taskId, className: "subtask-input" });
+    if (updatedTask && updatedSubtask) {
+      announce(`${updatedSubtask.completed ? "Completed" : "Reopened"} subtask ${updatedSubtask.title} for ${updatedTask.text}.`);
+    }
     renderTasks();
   }
 
   function addSubtask(taskId, title) {
     const normalizedTitle = normalizeLabel(title);
     if (!normalizedTitle) {
+      announce("Subtask title is required before adding it.", "alert");
       return false;
     }
+
+    let updatedTask = null;
 
     tasks = tasks.map((task) => {
       if (task.id !== taskId) {
         return task;
       }
 
-      return {
+      updatedTask = {
         ...task,
         subtasks: [
           ...task.subtasks,
@@ -357,33 +521,63 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         ]
       };
+
+      return updatedTask;
     });
 
     expandedTaskIds.add(taskId);
     saveTasks();
+    setPendingFocus({ type: "task-action", taskId, className: "subtask-input" });
+    if (updatedTask) {
+      announce(`Added subtask ${normalizedTitle} to ${updatedTask.text}.`);
+    }
     renderTasks();
     return true;
   }
 
   function deleteSubtask(taskId, subtaskId) {
+    let updatedTask = null;
+    let removedSubtask = null;
+
     tasks = tasks.map((task) => {
       if (task.id !== taskId) {
         return task;
       }
 
-      return {
+      removedSubtask = task.subtasks.find((subtask) => subtask.id === subtaskId) || null;
+      updatedTask = {
         ...task,
         subtasks: task.subtasks.filter((subtask) => subtask.id !== subtaskId)
       };
+
+      return updatedTask;
     });
 
+    expandedTaskIds.add(taskId);
     saveTasks();
+    setPendingFocus({ type: "task-action", taskId, className: "subtask-input" });
+    if (updatedTask && removedSubtask) {
+      announce(`Removed subtask ${removedSubtask.title} from ${updatedTask.text}.`, "alert");
+    }
     renderTasks();
   }
 
+  function focusNearestTask(afterIndex) {
+    const nextTask = tasks[afterIndex] || tasks[afterIndex - 1] || null;
+    if (nextTask) {
+      setPendingFocus({ type: "task-row", taskId: nextTask.id });
+      return;
+    }
+
+    setPendingFocus({ type: "task-input" });
+  }
+
   function deleteTask(taskId) {
-    tasks = tasks.filter((task) => task.id !== taskId);
+    const taskIndex = tasks.findIndex((task) => task.id === taskId);
+    const task = taskIndex >= 0 ? tasks[taskIndex] : null;
+    tasks = tasks.filter((currentTask) => currentTask.id !== taskId);
     expandedTaskIds.delete(taskId);
+    selectedTaskIds.delete(taskId);
 
     if (editingTaskId === taskId) {
       editingTaskId = null;
@@ -391,14 +585,37 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     saveTasks();
+    focusNearestTask(taskIndex);
+    if (task) {
+      announce(`Deleted ${task.text}.`, "alert");
+    }
     renderTasks();
   }
 
-  function toggleTaskDetails(taskId) {
-    if (expandedTaskIds.has(taskId)) {
+  function toggleTaskDetails(taskId, options = {}) {
+    const isExpanded = expandedTaskIds.has(taskId);
+    const task = tasks.find((currentTask) => currentTask.id === taskId);
+
+    if (isExpanded) {
       expandedTaskIds.delete(taskId);
+      setPendingFocus({
+        type: "task-action",
+        taskId,
+        className: "details-toggle"
+      });
+      if (task) {
+        announce(`Closed details for ${task.text}.`);
+      }
     } else {
       expandedTaskIds.add(taskId);
+      setPendingFocus({
+        type: "task-action",
+        taskId,
+        className: options.focusTarget === "details-toggle" ? "details-toggle" : "subtask-input"
+      });
+      if (task) {
+        announce(`Opened details for ${task.text}.`);
+      }
     }
 
     renderTasks();
@@ -412,24 +629,40 @@ document.addEventListener("DOMContentLoaded", () => {
 
     editingTaskId = taskId;
     editDraft = task.text;
+    setPendingFocus({ type: "task-action", taskId, className: "edit-input" });
+    announce(`Editing ${task.text}. Press Enter to save or Escape to cancel.`);
     renderTasks();
   }
 
   function cancelEditing() {
+    const taskId = editingTaskId;
+    const task = tasks.find((currentTask) => currentTask.id === taskId);
     editingTaskId = null;
     editDraft = "";
+    if (taskId) {
+      setPendingFocus({ type: "task-action", taskId, className: "edit-btn" });
+    }
+    if (task) {
+      announce(`Canceled editing for ${task.text}.`);
+    }
     renderTasks();
   }
 
   function saveEdit(taskId) {
     const nextText = normalizeLabel(editDraft);
     if (!nextText) {
+      announce("Edited task text cannot be empty.", "alert");
+      setPendingFocus({ type: "task-action", taskId, className: "edit-input" });
+      renderTasks();
       return;
     }
 
+    let updatedTask = null;
+
     tasks = tasks.map((task) => {
       if (task.id === taskId) {
-        return { ...task, text: nextText };
+        updatedTask = { ...task, text: nextText };
+        return updatedTask;
       }
 
       return task;
@@ -438,6 +671,10 @@ document.addEventListener("DOMContentLoaded", () => {
     editingTaskId = null;
     editDraft = "";
     saveTasks();
+    setPendingFocus({ type: "task-action", taskId, className: "edit-btn" });
+    if (updatedTask) {
+      announce(`Saved task ${updatedTask.text}.`);
+    }
     renderTasks();
   }
 
@@ -472,6 +709,14 @@ document.addEventListener("DOMContentLoaded", () => {
     return tasks.filter((task) => matchesSearch(task) && matchesFilter(task));
   }
 
+  function getVisibleSelectionCount(visibleTasks) {
+    return visibleTasks.filter((task) => selectedTaskIds.has(task.id)).length;
+  }
+
+  function areAllVisibleTasksSelected(visibleTasks) {
+    return visibleTasks.length > 0 && visibleTasks.every((task) => selectedTaskIds.has(task.id));
+  }
+
   function updateToolbarState(visibleTasks) {
     clearSearchBtn.disabled = searchQuery.length === 0;
 
@@ -482,20 +727,84 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     const completedCount = tasks.filter((task) => task.completed).length;
-    resultsSummary.textContent = `Showing ${visibleTasks.length} of ${tasks.length} tasks · ${completedCount} completed`;
+    const visibleSelectionCount = getVisibleSelectionCount(visibleTasks);
+    const hasSelection = selectedTaskIds.size > 0;
+    const allVisibleSelected = areAllVisibleTasksSelected(visibleTasks);
+
+    selectionSummary.textContent = hasSelection
+      ? `${selectedTaskIds.size} ${pluralize(selectedTaskIds.size, "task", "tasks")} selected`
+      : "No tasks selected";
+
+    toggleSelectAllBtn.disabled = visibleTasks.length === 0;
+    toggleSelectAllBtn.textContent = allVisibleSelected ? "Deselect visible" : "Select all visible";
+    toggleSelectAllBtn.ariaLabel = allVisibleSelected
+      ? "Deselect all visible tasks"
+      : "Select all visible tasks";
+    clearSelectionBtn.disabled = !hasSelection;
+    bulkCompleteBtn.disabled = !hasSelection;
+    bulkDeleteBtn.disabled = !hasSelection;
+
+    resultsSummary.textContent =
+      `Showing ${visibleTasks.length} of ${tasks.length} tasks · ${completedCount} completed · ${visibleSelectionCount} visible selected`;
   }
 
-  function getEmptyStateMessage() {
+  function updateStateBanner(visibleTasks) {
+    const allDone = tasks.length > 0 && tasks.every((task) => task.completed);
+    const showAllDoneBanner = allDone && !searchQuery && activeFilter === "all" && visibleTasks.length > 0;
+
+    stateBanner.hidden = !showAllDoneBanner;
+    stateBanner.textContent = showAllDoneBanner
+      ? "All tasks are complete. Review what shipped or add the next priority when you're ready."
+      : "";
+  }
+
+  function getEmptyStateContent() {
     if (tasks.length === 0) {
-      return "No tasks yet. Add one to get started.";
+      return {
+        title: "No tasks yet",
+        message: "Add one to get started.",
+        className: "empty-state state-empty"
+      };
     }
 
-    return "No tasks match the current search or filter.";
+    if (!searchQuery && activeFilter !== "completed" && tasks.every((task) => task.completed)) {
+      return {
+        title: "All tasks complete",
+        message: "Enjoy the win, or add the next priority when inspiration strikes.",
+        className: "empty-state state-all-done"
+      };
+    }
+
+    return {
+      title: "No matching tasks",
+      message: "Adjust the search or filters to bring tasks back into view.",
+      className: "empty-state state-no-results"
+    };
+  }
+
+  function createEmptyState() {
+    const { title, message, className } = getEmptyStateContent();
+    const emptyState = document.createElement("section");
+    emptyState.className = className;
+
+    const heading = document.createElement("p");
+    heading.className = "empty-state-title";
+    heading.textContent = title;
+
+    const body = document.createElement("p");
+    body.className = "empty-state-body";
+    body.textContent = message;
+
+    emptyState.appendChild(heading);
+    emptyState.appendChild(body);
+    return emptyState;
   }
 
   function createTaskDetails(task) {
-    const taskDetails = document.createElement("div");
+    const taskDetails = document.createElement("section");
     taskDetails.className = "task-details";
+    taskDetails.id = `${task.id}-details`;
+    taskDetails.ariaLabel = `Subtasks for ${task.text}`;
 
     const detailsHeader = document.createElement("div");
     detailsHeader.className = "task-details-header";
@@ -519,22 +828,34 @@ document.addEventListener("DOMContentLoaded", () => {
     subtaskInput.className = "subtask-input";
     subtaskInput.type = "text";
     subtaskInput.placeholder = "Add a subtask";
+    subtaskInput.ariaLabel = `Add a subtask for ${task.text}`;
     subtaskInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
-
         if (addSubtask(task.id, subtaskInput.value)) {
           return;
         }
 
         subtaskInput.focus();
       }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (normalizeLabel(subtaskInput.value)) {
+          subtaskInput.value = "";
+          announce(`Cleared the new subtask draft for ${task.text}.`);
+          return;
+        }
+
+        toggleTaskDetails(task.id, { focusTarget: "details-toggle" });
+      }
     });
 
     const addSubtaskButton = document.createElement("button");
-    addSubtaskButton.className = "secondary-btn";
+    addSubtaskButton.className = "secondary-btn add-subtask-btn";
     addSubtaskButton.type = "button";
     addSubtaskButton.textContent = "Add subtask";
+    addSubtaskButton.ariaLabel = `Add subtask to ${task.text}`;
     addSubtaskButton.addEventListener("click", () => {
       if (!addSubtask(task.id, subtaskInput.value)) {
         subtaskInput.focus();
@@ -564,6 +885,7 @@ document.addEventListener("DOMContentLoaded", () => {
       subtaskToggle.className = "subtask-toggle";
       subtaskToggle.type = "checkbox";
       subtaskToggle.checked = subtask.completed;
+      subtaskToggle.ariaLabel = `${subtask.completed ? "Mark" : "Complete"} subtask ${subtask.title}`;
       subtaskToggle.addEventListener("change", () => toggleSubtask(task.id, subtask.id));
 
       const subtaskText = document.createElement("span");
@@ -574,6 +896,7 @@ document.addEventListener("DOMContentLoaded", () => {
       removeSubtaskButton.className = "secondary-btn subtask-remove";
       removeSubtaskButton.type = "button";
       removeSubtaskButton.textContent = "Remove";
+      removeSubtaskButton.ariaLabel = `Remove subtask ${subtask.title} from ${task.text}`;
       removeSubtaskButton.addEventListener("click", () => deleteSubtask(task.id, subtask.id));
 
       subtaskItem.appendChild(subtaskToggle);
@@ -586,164 +909,341 @@ document.addEventListener("DOMContentLoaded", () => {
     return taskDetails;
   }
 
-  function renderTasks() {
-    const visibleTasks = getVisibleTasks();
-    taskList.innerHTML = "";
-    updateToolbarState(visibleTasks);
-
-    if (visibleTasks.length === 0) {
-      const emptyState = document.createElement("p");
-      emptyState.className = "empty-state";
-      emptyState.textContent = getEmptyStateMessage();
-      taskList.appendChild(emptyState);
+  function clearSelection(announcement, focusTargetType) {
+    if (selectedTaskIds.size === 0) {
       return;
     }
 
-    visibleTasks.forEach((task) => {
-      const isEditing = editingTaskId === task.id;
-      const isExpanded = expandedTaskIds.has(task.id);
-      const taskRow = document.createElement("div");
-      taskRow.className = `task-item${task.completed ? " completed" : ""}${task.priority === "high" ? " priority-high" : ""}`;
+    selectedTaskIds.clear();
+    if (announcement) {
+      announce(announcement);
+    }
+    if (focusTargetType) {
+      setPendingFocus({ type: focusTargetType });
+    }
+    renderTasks();
+  }
 
-      const checkbox = document.createElement("input");
-      checkbox.className = "task-toggle";
-      checkbox.type = "checkbox";
-      checkbox.checked = task.completed;
-      checkbox.disabled = isEditing;
-      checkbox.addEventListener("change", () => toggleTask(task.id));
+  function toggleSelectAllVisible() {
+    const visibleTasks = getVisibleTasks();
+    if (visibleTasks.length === 0) {
+      return;
+    }
 
-      const taskContent = document.createElement("div");
-      taskContent.className = "task-content";
+    if (areAllVisibleTasksSelected(visibleTasks)) {
+      visibleTasks.forEach((task) => {
+        selectedTaskIds.delete(task.id);
+      });
+      announce(`Deselected ${visibleTasks.length} visible ${pluralize(visibleTasks.length, "task", "tasks")}.`);
+    } else {
+      visibleTasks.forEach((task) => {
+        selectedTaskIds.add(task.id);
+      });
+      announce(`Selected ${visibleTasks.length} visible ${pluralize(visibleTasks.length, "task", "tasks")}.`);
+    }
 
-      const taskActions = document.createElement("div");
-      taskActions.className = "task-actions";
+    setPendingFocus({ type: "select-all" });
+    renderTasks();
+  }
 
-      if (isEditing) {
-        const editInput = document.createElement("input");
-        editInput.className = "edit-input";
-        editInput.type = "text";
-        editInput.value = editDraft;
-        editInput.addEventListener("input", (event) => {
-          editDraft = event.target.value;
-        });
-        editInput.addEventListener("keydown", (event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            saveEdit(task.id);
-          }
+  function completeSelectedTasks() {
+    if (selectedTaskIds.size === 0) {
+      return;
+    }
 
-          if (event.key === "Escape") {
-            event.preventDefault();
-            cancelEditing();
-          }
-        });
-
-        const saveButton = document.createElement("button");
-        saveButton.className = "secondary-btn";
-        saveButton.type = "button";
-        saveButton.textContent = "Save";
-        saveButton.addEventListener("click", () => saveEdit(task.id));
-
-        const cancelButton = document.createElement("button");
-        cancelButton.className = "secondary-btn";
-        cancelButton.type = "button";
-        cancelButton.textContent = "Cancel";
-        cancelButton.addEventListener("click", cancelEditing);
-
-        taskContent.appendChild(editInput);
-        taskActions.appendChild(saveButton);
-        taskActions.appendChild(cancelButton);
-        taskRow.appendChild(checkbox);
-        taskRow.appendChild(taskContent);
-        taskRow.appendChild(taskActions);
-        taskList.appendChild(taskRow);
-        editInput.focus();
-        return;
+    let updatedCount = 0;
+    tasks = tasks.map((task) => {
+      if (!selectedTaskIds.has(task.id) || task.completed) {
+        return task;
       }
 
-      const taskText = document.createElement("span");
-      taskText.className = "task-text";
-      taskText.textContent = task.text;
-      taskText.addEventListener("click", () => toggleTask(task.id));
+      updatedCount += 1;
+      return { ...task, completed: true };
+    });
 
-      const detailsToggle = document.createElement("button");
-      detailsToggle.className = "secondary-btn details-toggle";
-      detailsToggle.type = "button";
-      detailsToggle.textContent = isExpanded ? "Hide details" : task.subtasks.length > 0 ? "Show details" : "Add subtasks";
-      detailsToggle.ariaExpanded = String(isExpanded);
-      detailsToggle.addEventListener("click", () => toggleTaskDetails(task.id));
+    saveTasks();
+    announce(`Marked ${updatedCount} selected ${pluralize(updatedCount, "task", "tasks")} complete.`);
+    setPendingFocus({ type: "bulk-complete" });
+    renderTasks();
+  }
 
-      const taskHeader = document.createElement("div");
-      taskHeader.className = "task-header";
-      taskHeader.appendChild(taskText);
-      taskHeader.appendChild(detailsToggle);
-      taskContent.appendChild(taskHeader);
+  function deleteSelectedTasks() {
+    if (selectedTaskIds.size === 0) {
+      return;
+    }
 
-      const taskMeta = createTaskMeta(task);
-      if (taskMeta) {
-        taskContent.appendChild(taskMeta);
+    const removedCount = selectedTaskIds.size;
+    tasks = tasks.filter((task) => !selectedTaskIds.has(task.id));
+    clearMissingTaskState();
+    selectedTaskIds.clear();
+    saveTasks();
+    announce(`Deleted ${removedCount} selected ${pluralize(removedCount, "task", "tasks")}.`, "alert");
+    setPendingFocus({ type: tasks.length > 0 ? "select-all" : "task-input" });
+    renderTasks();
+  }
+
+  function moveTask(taskId, direction) {
+    const currentIndex = tasks.findIndex((task) => task.id === taskId);
+    if (currentIndex === -1) {
+      return;
+    }
+
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= tasks.length) {
+      return;
+    }
+
+    const reorderedTasks = [...tasks];
+    const [movedTask] = reorderedTasks.splice(currentIndex, 1);
+    reorderedTasks.splice(targetIndex, 0, movedTask);
+    tasks = reorderedTasks;
+    saveTasks();
+    setPendingFocus({ type: "task-row", taskId });
+    announce(`Moved ${movedTask.text} ${direction}.`);
+    renderTasks();
+  }
+
+  function createTaskRow(task, index) {
+    const isEditing = editingTaskId === task.id;
+    const isExpanded = expandedTaskIds.has(task.id);
+    const isSelected = selectedTaskIds.has(task.id);
+    const taskRow = document.createElement("article");
+    taskRow.className = `task-item${task.completed ? " completed" : ""}${task.priority === "high" ? " priority-high" : ""}${isSelected ? " selected" : ""}`;
+    taskRow.role = "listitem";
+    taskRow.tabIndex = 0;
+    taskRow.taskId = task.id;
+    taskRow.ariaLabel = `${task.text}${task.completed ? ", completed" : ", active"}${isSelected ? ", selected" : ""}`;
+    taskRow.addEventListener("keydown", (event) => {
+      if (event.altKey && event.key === "ArrowUp") {
+        event.preventDefault();
+        moveTask(task.id, "up");
       }
 
-      if (isExpanded) {
-        taskContent.appendChild(createTaskDetails(task));
+      if (event.altKey && event.key === "ArrowDown") {
+        event.preventDefault();
+        moveTask(task.id, "down");
       }
 
-      const editButton = document.createElement("button");
-      editButton.className = "secondary-btn";
-      editButton.type = "button";
-      editButton.textContent = "Edit";
-      editButton.addEventListener("click", () => startEditing(task.id));
+      if (event.key === "Escape" && expandedTaskIds.has(task.id) && !isEditing) {
+        event.preventDefault();
+        toggleTaskDetails(task.id, { focusTarget: "details-toggle" });
+      }
+    });
 
-      const deleteButton = document.createElement("button");
-      deleteButton.className = "delete-btn";
-      deleteButton.type = "button";
-      deleteButton.textContent = "Delete";
-      deleteButton.addEventListener("click", () => deleteTask(task.id));
+    const taskLeadingControls = document.createElement("div");
+    taskLeadingControls.className = "task-leading-controls";
 
-      taskActions.appendChild(editButton);
-      taskActions.appendChild(deleteButton);
-      taskRow.appendChild(checkbox);
+    const selectionToggle = document.createElement("input");
+    selectionToggle.className = "selection-toggle";
+    selectionToggle.type = "checkbox";
+    selectionToggle.checked = isSelected;
+    selectionToggle.ariaLabel = `${isSelected ? "Deselect" : "Select"} task ${task.text}`;
+    selectionToggle.addEventListener("change", () => toggleTaskSelection(task.id));
+
+    const checkbox = document.createElement("input");
+    checkbox.className = "task-toggle";
+    checkbox.type = "checkbox";
+    checkbox.checked = task.completed;
+    checkbox.disabled = isEditing;
+    checkbox.ariaLabel = `${task.completed ? "Mark" : "Complete"} task ${task.text}`;
+    checkbox.addEventListener("change", () => toggleTask(task.id));
+
+    taskLeadingControls.appendChild(selectionToggle);
+    taskLeadingControls.appendChild(checkbox);
+
+    const taskContent = document.createElement("div");
+    taskContent.className = "task-content";
+
+    const taskActions = document.createElement("div");
+    taskActions.className = "task-actions";
+
+    if (isEditing) {
+      const editInput = document.createElement("input");
+      editInput.className = "edit-input";
+      editInput.type = "text";
+      editInput.value = editDraft;
+      editInput.ariaLabel = `Edit task ${task.text}`;
+      editInput.addEventListener("input", (event) => {
+        editDraft = event.target.value;
+      });
+      editInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          saveEdit(task.id);
+        }
+
+        if (event.key === "Escape") {
+          event.preventDefault();
+          cancelEditing();
+        }
+      });
+
+      const saveButton = document.createElement("button");
+      saveButton.className = "secondary-btn save-btn";
+      saveButton.type = "button";
+      saveButton.textContent = "Save";
+      saveButton.ariaLabel = `Save edits for ${task.text}`;
+      saveButton.addEventListener("click", () => saveEdit(task.id));
+
+      const cancelButton = document.createElement("button");
+      cancelButton.className = "secondary-btn cancel-btn";
+      cancelButton.type = "button";
+      cancelButton.textContent = "Cancel";
+      cancelButton.ariaLabel = `Cancel editing ${task.text}`;
+      cancelButton.addEventListener("click", cancelEditing);
+
+      taskContent.appendChild(editInput);
+      taskActions.appendChild(saveButton);
+      taskActions.appendChild(cancelButton);
+      taskRow.appendChild(taskLeadingControls);
       taskRow.appendChild(taskContent);
       taskRow.appendChild(taskActions);
-      taskList.appendChild(taskRow);
+      return taskRow;
+    }
+
+    const taskHeader = document.createElement("div");
+    taskHeader.className = "task-header";
+
+    const taskText = document.createElement("p");
+    taskText.className = "task-text";
+    taskText.textContent = task.text;
+
+    const detailsToggle = document.createElement("button");
+    detailsToggle.className = "secondary-btn details-toggle";
+    detailsToggle.type = "button";
+    detailsToggle.textContent = isExpanded ? "Hide details" : task.subtasks.length > 0 ? "Show details" : "Add subtasks";
+    detailsToggle.ariaExpanded = String(isExpanded);
+    detailsToggle.ariaControls = `${task.id}-details`;
+    detailsToggle.ariaLabel = `${isExpanded ? "Hide" : "Show"} details for ${task.text}`;
+    detailsToggle.addEventListener("click", () => toggleTaskDetails(task.id));
+
+    taskHeader.appendChild(taskText);
+    taskHeader.appendChild(detailsToggle);
+    taskContent.appendChild(taskHeader);
+
+    const taskMeta = createTaskMeta(task);
+    if (taskMeta) {
+      taskContent.appendChild(taskMeta);
+    }
+
+    if (isExpanded) {
+      taskContent.appendChild(createTaskDetails(task));
+    }
+
+    const editButton = document.createElement("button");
+    editButton.className = "secondary-btn edit-btn";
+    editButton.type = "button";
+    editButton.textContent = "Edit";
+    editButton.ariaLabel = `Edit task ${task.text}`;
+    editButton.addEventListener("click", () => startEditing(task.id));
+
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "delete-btn";
+    deleteButton.type = "button";
+    deleteButton.textContent = "Delete";
+    deleteButton.ariaLabel = `Delete task ${task.text}`;
+    deleteButton.addEventListener("click", () => deleteTask(task.id));
+
+    const moveControls = document.createElement("div");
+    moveControls.className = "task-order-controls";
+
+    const moveUpButton = document.createElement("button");
+    moveUpButton.className = "secondary-btn move-up-btn";
+    moveUpButton.type = "button";
+    moveUpButton.textContent = "Move up";
+    moveUpButton.ariaLabel = `Move ${task.text} up`;
+    moveUpButton.disabled = index === 0;
+    moveUpButton.addEventListener("click", () => moveTask(task.id, "up"));
+
+    const moveDownButton = document.createElement("button");
+    moveDownButton.className = "secondary-btn move-down-btn";
+    moveDownButton.type = "button";
+    moveDownButton.textContent = "Move down";
+    moveDownButton.ariaLabel = `Move ${task.text} down`;
+    moveDownButton.disabled = index === tasks.length - 1;
+    moveDownButton.addEventListener("click", () => moveTask(task.id, "down"));
+
+    moveControls.appendChild(moveUpButton);
+    moveControls.appendChild(moveDownButton);
+
+    taskActions.appendChild(editButton);
+    taskActions.appendChild(deleteButton);
+    taskActions.appendChild(moveControls);
+    taskRow.appendChild(taskLeadingControls);
+    taskRow.appendChild(taskContent);
+    taskRow.appendChild(taskActions);
+    return taskRow;
+  }
+
+  function renderTasks() {
+    clearMissingTaskState();
+    const visibleTasks = getVisibleTasks();
+    taskList.innerHTML = "";
+    updateToolbarState(visibleTasks);
+    updateStateBanner(visibleTasks);
+
+    if (visibleTasks.length === 0) {
+      taskList.appendChild(createEmptyState());
+      applyPendingFocus();
+      return;
+    }
+
+    visibleTasks.forEach((task, index) => {
+      taskList.appendChild(createTaskRow(task, index));
     });
+
+    applyPendingFocus();
   }
 
   addBtn.addEventListener("click", addTask);
-  taskInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      addTask();
-    }
+
+  [taskInput, priorityInput, dueDateInput, tagsInput].forEach((element) => {
+    element.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        addTask();
+      }
+    });
   });
-  priorityInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      addTask();
-    }
-  });
-  dueDateInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      addTask();
-    }
-  });
-  tagsInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      addTask();
-    }
-  });
+
   searchInput.addEventListener("input", (event) => {
-    searchQuery = event.target.value.trim().toLowerCase();
+    searchQuery = normalizeLabel(event.target.value).toLowerCase();
     renderTasks();
   });
+
+  searchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (searchInput.value) {
+        searchInput.value = "";
+        searchQuery = "";
+        announce("Cleared search.");
+        setPendingFocus({ type: "search-input" });
+        renderTasks();
+      }
+    }
+  });
+
   clearSearchBtn.addEventListener("click", () => {
     searchInput.value = "";
     searchQuery = "";
+    announce("Cleared search.");
+    setPendingFocus({ type: "search-input" });
     renderTasks();
-    searchInput.focus();
   });
+
+  toggleSelectAllBtn.addEventListener("click", toggleSelectAllVisible);
+  clearSelectionBtn.addEventListener("click", () => clearSelection("Cleared selected tasks.", "select-all"));
+  bulkCompleteBtn.addEventListener("click", completeSelectedTasks);
+  bulkDeleteBtn.addEventListener("click", deleteSelectedTasks);
+
+  bulkToolbar.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && selectedTaskIds.size > 0) {
+      event.preventDefault();
+      clearSelection("Cleared selected tasks.", "select-all");
+    }
+  });
+
   filterButtons.forEach(({ key, element }) => {
     element.addEventListener("click", () => {
       activeFilter = key;
