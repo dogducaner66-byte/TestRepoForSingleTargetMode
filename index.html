@@ -9,11 +9,30 @@
 <body>
   <main class="container">
     <h1>Todo List</h1>
-    <p class="subtitle">Track quick personal tasks, mark them complete, and remove them when you are done.</p>
+    <p class="subtitle">Capture what matters, find it instantly, and stay focused on the right next task.</p>
     <div class="input-row">
       <input type="text" id="taskInput" placeholder="What needs to get done?" aria-label="Task description">
+      <select id="priorityInput" aria-label="Task priority">
+        <option value="normal">Normal Priority</option>
+        <option value="high">High Priority</option>
+      </select>
+      <input type="date" id="dueDateInput" aria-label="Task due date">
       <button id="addBtn" type="button">Add Task</button>
     </div>
+    <div class="toolbar" aria-label="Todo controls">
+      <div class="search-row">
+        <input type="search" id="searchInput" placeholder="Search tasks live" aria-label="Search tasks">
+        <button id="clearSearchBtn" type="button">Clear Search</button>
+      </div>
+      <div class="filter-row" role="toolbar" aria-label="Task filters">
+        <button id="filterAll" class="filter-btn active" type="button" aria-pressed="true">All</button>
+        <button id="filterActive" class="filter-btn" type="button" aria-pressed="false">Active</button>
+        <button id="filterCompleted" class="filter-btn" type="button" aria-pressed="false">Completed</button>
+        <button id="filterHighPriority" class="filter-btn" type="button" aria-pressed="false">High Priority</button>
+        <button id="filterDueToday" class="filter-btn" type="button" aria-pressed="false">Due Today</button>
+      </div>
+    </div>
+    <p id="resultsSummary" class="results-summary" aria-live="polite"></p>
     <div id="taskList" aria-live="polite"></div>
   </main>
   <script src="app.js"></script>
