@@ -415,6 +415,71 @@ function getMoveDownButton(taskRow) {
   return findByClassName(taskRow, "move-down-btn");
 }
 
+function getDeleteButton(taskRow) {
+  return findButtonByText(taskRow, "Delete");
+}
+
+function getCancelButton(taskRow) {
+  return findButtonByText(taskRow, "Cancel");
+}
+
+function getAddSubtaskButton(taskRow) {
+  return findByClassName(taskRow, "add-subtask-btn");
+}
+
+function getDetailsSummary(taskRow) {
+  return findByClassName(taskRow, "task-details-summary");
+}
+
+function getEmptyState(taskList) {
+  return taskList.children[0];
+}
+
+function addTaskWith(harness, options) {
+  const {
+    taskInput,
+    priorityInput,
+    dueDateInput,
+    tagsInput,
+    addBtn
+  } = harness;
+  const {
+    text,
+    priority = "normal",
+    dueDate = "",
+    tags = "",
+    submitWith = "click"
+  } = options;
+
+  taskInput.value = text;
+  priorityInput.value = priority;
+  dueDateInput.value = dueDate;
+  tagsInput.value = tags;
+
+  if (submitWith === "enter") {
+    tagsInput.dispatchEvent({ type: "keydown", key: "Enter" });
+    return;
+  }
+
+  addBtn.click();
+}
+
+function getTaskLabels(taskList) {
+  return getTaskRows(taskList).map((taskRow) => getTaskText(taskRow).textContent);
+}
+
+function toggleTaskComplete(taskRow) {
+  getToggle(taskRow).dispatchEvent({ type: "change" });
+}
+
+function toggleTaskSelection(taskRow) {
+  getSelectionToggle(taskRow).dispatchEvent({ type: "change" });
+}
+
+function toggleSubtaskComplete(subtaskRow) {
+  getSubtaskToggle(subtaskRow).dispatchEvent({ type: "change" });
+}
+
 test("static delivery assets exist and semantic accessibility scaffolding is present", () => {
   for (const filePath of [indexPath, stylePath, appPath, readmePath]) {
     fs.accessSync(filePath);
@@ -428,17 +493,29 @@ test("static delivery assets exist and semantic accessibility scaffolding is pre
   assert.match(html, /id="statusLiveRegion"/);
   assert.match(html, /id="alertLiveRegion"/);
   assert.match(html, /id="keyboardHelp"/);
+  assert.match(html, /id="powerUserHint"/);
   assert.match(html, /aria-controls="taskList"/);
   assert.match(html, /role="list"/);
   assert.match(html, /class="sr-only"/);
 
   assert.match(css, /\.sr-only\s*\{/);
   assert.match(css, /\.bulk-toolbar\s*\{/);
+  assert.match(css, /\.power-user-hint\s*\{/);
   assert.match(css, /\.selection-toggle\s*\{/);
   assert.match(css, /\.task-item\.selected\s*\{/);
   assert.match(css, /\.task-order-controls\s*\{/);
   assert.match(css, /\.state-banner\s*\{/);
   assert.match(css, /\.task-item:focus-visible/);
+});
+
+test("the README documents setup, core features, and keyboard-friendly usage guidance", () => {
+  const readme = fs.readFileSync(readmePath, "utf8");
+
+  assert.match(readme, /# Personal Todo App/);
+  assert.match(readme, /npm install/);
+  assert.match(readme, /npm test/);
+  assert.match(readme, /Bulk selection/);
+  assert.match(readme, /Alt` \+ `Arrow Up` or `Arrow Down`/);
 });
 
 test("the empty state keeps search and bulk controls in a safe default state", () => {
@@ -703,4 +780,462 @@ test("save failures are logged without blocking in-memory task updates", () => {
   assert.equal(taskRows.length, 1);
   assert.equal(getTaskText(taskRows[0]).textContent, "Write backup plan");
   assert.deepEqual(loggedErrors, ["Failed to save tasks to localStorage."]);
+});
+
+test("adding a blank task announces validation feedback and keeps focus on the task input", () => {
+  const { addBtn, taskInput, taskList, alertLiveRegion, document } = createAppHarness();
+
+  taskInput.focus();
+  taskInput.value = "   ";
+  addBtn.click();
+
+  assert.equal(getTaskRows(taskList).length, 0);
+  assert.equal(getEmptyState(taskList).className, "empty-state state-empty");
+  assert.equal(alertLiveRegion.textContent, "Task description is required before adding a task.");
+  assert.equal(document.activeElement, taskInput);
+});
+
+test("clear search button clears the live query and restores focus to the search input", () => {
+  const harness = createAppHarness();
+  const { searchInput, clearSearchBtn, taskList, document, statusLiveRegion } = harness;
+
+  addTaskWith(harness, { text: "Plan vacation" });
+  addTaskWith(harness, { text: "Pick up groceries" });
+
+  searchInput.value = "vacation";
+  searchInput.dispatchEvent({ type: "input" });
+  assert.deepEqual(getTaskLabels(taskList), ["Plan vacation"]);
+
+  clearSearchBtn.click();
+
+  assert.equal(searchInput.value, "");
+  assert.equal(document.activeElement, searchInput);
+  assert.equal(statusLiveRegion.textContent, "Cleared search.");
+  assert.deepEqual(getTaskLabels(taskList), ["Plan vacation", "Pick up groceries"]);
+});
+
+test("active filter keeps only incomplete tasks visible and updates pressed state", () => {
+  const harness = createAppHarness();
+  const { filterActive, filterAll, taskList } = harness;
+
+  addTaskWith(harness, { text: "Prepare deck" });
+  addTaskWith(harness, { text: "Send recap" });
+  toggleTaskComplete(getTaskRows(taskList)[0]);
+
+  filterActive.click();
+
+  assert.deepEqual(getTaskLabels(taskList), ["Send recap"]);
+  assert.equal(filterActive.ariaPressed, "true");
+  assert.equal(filterAll.ariaPressed, "false");
+});
+
+test("completed filter keeps only completed tasks visible", () => {
+  const harness = createAppHarness();
+  const { filterCompleted, taskList } = harness;
+
+  addTaskWith(harness, { text: "Ship release notes" });
+  addTaskWith(harness, { text: "Plan retro" });
+  toggleTaskComplete(getTaskRows(taskList)[0]);
+
+  filterCompleted.click();
+
+  assert.deepEqual(getTaskLabels(taskList), ["Ship release notes"]);
+});
+
+test("high priority filter keeps only high priority tasks visible", () => {
+  const harness = createAppHarness();
+  const { filterHighPriority, taskList } = harness;
+
+  addTaskWith(harness, { text: "Normal follow-up" });
+  addTaskWith(harness, { text: "Escalate blocker", priority: "high" });
+
+  filterHighPriority.click();
+
+  assert.deepEqual(getTaskLabels(taskList), ["Escalate blocker"]);
+  assert.equal(getPriorityBadge(getTaskRows(taskList)[0]).textContent, "High priority");
+});
+
+test("due today filter keeps only tasks due on the fixed current date visible", () => {
+  const harness = createAppHarness();
+  const { filterDueToday, taskList } = harness;
+
+  addTaskWith(harness, { text: "Today item", dueDate: "2026-04-17" });
+  addTaskWith(harness, { text: "Later item", dueDate: "2026-04-18" });
+
+  filterDueToday.click();
+
+  const visibleRow = getTaskRows(taskList)[0];
+  assert.deepEqual(getTaskLabels(taskList), ["Today item"]);
+  assert.match(getDueDateChip(visibleRow).className, /\bdue-today\b/);
+});
+
+test("search matches task tags in addition to task text", () => {
+  const harness = createAppHarness();
+  const { searchInput, taskList } = harness;
+
+  addTaskWith(harness, { text: "Stretch break", tags: "Wellness, Habits" });
+  addTaskWith(harness, { text: "Read release notes", tags: "Work" });
+
+  searchInput.value = "wellness";
+  searchInput.dispatchEvent({ type: "input" });
+
+  assert.deepEqual(getTaskLabels(taskList), ["Stretch break"]);
+});
+
+test("search matches subtask text when task titles do not match the query", () => {
+  const harness = createAppHarness();
+  const { searchInput, taskList } = harness;
+
+  addTaskWith(harness, { text: "Prepare launch" });
+  getDetailsToggle(getTaskRows(taskList)[0]).click();
+  let currentRow = getTaskRows(taskList)[0];
+  let subtaskInput = getSubtaskInput(currentRow);
+  subtaskInput.value = "Draft agenda";
+  subtaskInput.dispatchEvent({ type: "keydown", key: "Enter" });
+
+  searchInput.value = "agenda";
+  searchInput.dispatchEvent({ type: "input" });
+
+  assert.deepEqual(getTaskLabels(taskList), ["Prepare launch"]);
+});
+
+test("search misses render the dedicated no-results empty state", () => {
+  const harness = createAppHarness();
+  const { searchInput, taskList } = harness;
+
+  addTaskWith(harness, { text: "Prepare launch" });
+  searchInput.value = "not-here";
+  searchInput.dispatchEvent({ type: "input" });
+
+  const emptyState = getEmptyState(taskList);
+  assert.equal(getTaskRows(taskList).length, 0);
+  assert.equal(findByClassName(emptyState, "empty-state-title").textContent, "No matching tasks");
+  assert.equal(findByClassName(emptyState, "empty-state-body").textContent, "Adjust the search or filters to bring tasks back into view.");
+  assert.match(emptyState.className, /\bstate-no-results\b/);
+});
+
+test("all-done banner appears in the default view when every task is complete", () => {
+  const harness = createAppHarness();
+  const { stateBanner, taskList } = harness;
+
+  addTaskWith(harness, { text: "Close billing loop" });
+  toggleTaskComplete(getTaskRows(taskList)[0]);
+
+  assert.equal(stateBanner.hidden, false);
+  assert.equal(
+    stateBanner.textContent,
+    "All tasks are complete. Review what shipped or add the next priority when you're ready."
+  );
+});
+
+test("all-done empty state appears when the active filter hides only-complete work", () => {
+  const harness = createAppHarness();
+  const { filterActive, taskList } = harness;
+
+  addTaskWith(harness, { text: "Archive planning notes" });
+  toggleTaskComplete(getTaskRows(taskList)[0]);
+  filterActive.click();
+
+  const emptyState = getEmptyState(taskList);
+  assert.equal(findByClassName(emptyState, "empty-state-title").textContent, "All tasks complete");
+  assert.equal(findByClassName(emptyState, "empty-state-body").textContent, "Enjoy the win, or add the next priority when inspiration strikes.");
+  assert.match(emptyState.className, /\bstate-all-done\b/);
+});
+
+test("selecting a single task updates summary text, row aria label, and selection toggle copy", () => {
+  const harness = createAppHarness();
+  const { selectionSummary, statusLiveRegion, taskList } = harness;
+
+  addTaskWith(harness, { text: "Read book" });
+  toggleTaskSelection(getTaskRows(taskList)[0]);
+
+  const currentRow = getTaskRows(taskList)[0];
+  assert.equal(selectionSummary.textContent, "1 task selected");
+  assert.equal(currentRow.ariaLabel, "Read book, active, selected");
+  assert.equal(getSelectionToggle(currentRow).ariaLabel, "Deselect task Read book");
+  assert.equal(statusLiveRegion.textContent, "Selected Read book.");
+});
+
+test("select all visible applies only to the current filtered result set", () => {
+  const harness = createAppHarness();
+  const { searchInput, toggleSelectAllBtn, taskList, resultsSummary } = harness;
+
+  addTaskWith(harness, { text: "Alpha review" });
+  addTaskWith(harness, { text: "Beta review" });
+  searchInput.value = "alpha";
+  searchInput.dispatchEvent({ type: "input" });
+
+  toggleSelectAllBtn.click();
+  searchInput.value = "";
+  searchInput.dispatchEvent({ type: "input" });
+
+  const taskRows = getTaskRows(taskList);
+  assert.equal(getSelectionToggle(taskRows[0]).checked, true);
+  assert.equal(getSelectionToggle(taskRows[1]).checked, false);
+  assert.equal(resultsSummary.textContent, "Showing 2 of 2 tasks · 0 completed · 1 visible selected");
+});
+
+test("a second select-all click deselects only the currently visible tasks", () => {
+  const harness = createAppHarness();
+  const { searchInput, toggleSelectAllBtn, taskList, selectionSummary, statusLiveRegion } = harness;
+
+  addTaskWith(harness, { text: "Alpha review" });
+  addTaskWith(harness, { text: "Beta review" });
+  toggleTaskSelection(getTaskRows(taskList)[1]);
+
+  searchInput.value = "alpha";
+  searchInput.dispatchEvent({ type: "input" });
+  toggleSelectAllBtn.click();
+  toggleSelectAllBtn.click();
+
+  searchInput.value = "";
+  searchInput.dispatchEvent({ type: "input" });
+
+  const taskRows = getTaskRows(taskList);
+  assert.equal(getSelectionToggle(taskRows[0]).checked, false);
+  assert.equal(getSelectionToggle(taskRows[1]).checked, true);
+  assert.equal(selectionSummary.textContent, "1 task selected");
+  assert.equal(statusLiveRegion.textContent, "Deselected 1 visible task.");
+});
+
+test("clear selection button clears all selected tasks and restores focus to select all", () => {
+  const harness = createAppHarness();
+  const { toggleSelectAllBtn, clearSelectionBtn, selectionSummary, taskList, document, statusLiveRegion } = harness;
+
+  addTaskWith(harness, { text: "Alpha" });
+  addTaskWith(harness, { text: "Beta" });
+  toggleSelectAllBtn.click();
+  clearSelectionBtn.click();
+
+  assert.equal(getTaskRows(taskList).every((taskRow) => getSelectionToggle(taskRow).checked === false), true);
+  assert.equal(selectionSummary.textContent, "No tasks selected");
+  assert.equal(statusLiveRegion.textContent, "Cleared selected tasks.");
+  assert.equal(document.activeElement, toggleSelectAllBtn);
+});
+
+test("bulk complete only counts incomplete selected tasks and focuses the bulk complete button", () => {
+  const harness = createAppHarness();
+  const { bulkCompleteBtn, taskList, statusLiveRegion, document } = harness;
+
+  addTaskWith(harness, { text: "Already done" });
+  addTaskWith(harness, { text: "Needs action" });
+  toggleTaskComplete(getTaskRows(taskList)[0]);
+  let taskRows = getTaskRows(taskList);
+  toggleTaskSelection(taskRows[0]);
+  taskRows = getTaskRows(taskList);
+  toggleTaskSelection(taskRows[1]);
+  bulkCompleteBtn.click();
+
+  taskRows = getTaskRows(taskList);
+  assert.equal(taskRows.every((taskRow) => getToggle(taskRow).checked), true);
+  assert.equal(statusLiveRegion.textContent, "Marked 1 selected task complete.");
+  assert.equal(document.activeElement, bulkCompleteBtn);
+});
+
+test("bulk delete removes only selected tasks and keeps remaining items available", () => {
+  const harness = createAppHarness();
+  const { bulkDeleteBtn, taskList, alertLiveRegion, document, toggleSelectAllBtn } = harness;
+
+  addTaskWith(harness, { text: "Alpha" });
+  addTaskWith(harness, { text: "Beta" });
+  addTaskWith(harness, { text: "Gamma" });
+  toggleTaskSelection(getTaskRows(taskList)[1]);
+  bulkDeleteBtn.click();
+
+  assert.deepEqual(getTaskLabels(taskList), ["Alpha", "Gamma"]);
+  assert.equal(alertLiveRegion.textContent, "Deleted 1 selected task.");
+  assert.equal(document.activeElement, toggleSelectAllBtn);
+});
+
+test("opening details with no subtasks shows the empty guidance and focuses the subtask input", () => {
+  const harness = createAppHarness();
+  const { taskList, document, statusLiveRegion } = harness;
+
+  addTaskWith(harness, { text: "Prepare kickoff" });
+  getDetailsToggle(getTaskRows(taskList)[0]).click();
+
+  const currentRow = getTaskRows(taskList)[0];
+  assert.equal(findByClassName(currentRow, "subtask-empty").textContent, "No subtasks yet. Break this into smaller, clear steps.");
+  assert.equal(statusLiveRegion.textContent, "Opened details for Prepare kickoff.");
+  assert.equal(document.activeElement, getSubtaskInput(currentRow));
+});
+
+test("pressing Escape on an expanded task row closes details and restores focus to the details toggle", () => {
+  const harness = createAppHarness();
+  const { taskList, document, statusLiveRegion } = harness;
+
+  addTaskWith(harness, { text: "Prepare kickoff" });
+  getDetailsToggle(getTaskRows(taskList)[0]).click();
+  let currentRow = getTaskRows(taskList)[0];
+  currentRow.focus();
+  currentRow.dispatchEvent({ type: "keydown", key: "Escape" });
+
+  currentRow = getTaskRows(taskList)[0];
+  assert.equal(getTaskDetails(currentRow), null);
+  assert.equal(statusLiveRegion.textContent, "Closed details for Prepare kickoff.");
+  assert.equal(document.activeElement, getDetailsToggle(currentRow));
+});
+
+test("blank subtask submissions announce validation feedback and keep focus in the details editor", () => {
+  const harness = createAppHarness();
+  const { taskList, alertLiveRegion, document } = harness;
+
+  addTaskWith(harness, { text: "Prepare kickoff" });
+  getDetailsToggle(getTaskRows(taskList)[0]).click();
+  const currentRow = getTaskRows(taskList)[0];
+  const subtaskInput = getSubtaskInput(currentRow);
+  subtaskInput.value = "   ";
+  getAddSubtaskButton(currentRow).click();
+
+  assert.equal(alertLiveRegion.textContent, "Subtask title is required before adding it.");
+  assert.equal(document.activeElement, subtaskInput);
+});
+
+test("subtask completion and removal update progress, summary copy, and fallback guidance", () => {
+  const harness = createAppHarness();
+  const { taskList, statusLiveRegion, alertLiveRegion } = harness;
+
+  addTaskWith(harness, { text: "Prepare launch" });
+  getDetailsToggle(getTaskRows(taskList)[0]).click();
+  let currentRow = getTaskRows(taskList)[0];
+  let subtaskInput = getSubtaskInput(currentRow);
+  subtaskInput.value = "Draft agenda";
+  subtaskInput.dispatchEvent({ type: "keydown", key: "Enter" });
+  currentRow = getTaskRows(taskList)[0];
+  subtaskInput = getSubtaskInput(currentRow);
+  subtaskInput.value = "Review deck";
+  subtaskInput.dispatchEvent({ type: "keydown", key: "Enter" });
+
+  currentRow = getTaskRows(taskList)[0];
+  toggleSubtaskComplete(getSubtaskRows(currentRow)[0]);
+  currentRow = getTaskRows(taskList)[0];
+  assert.equal(getSubtaskProgressChip(currentRow).textContent, "1/2 subtasks done");
+  assert.equal(getDetailsSummary(currentRow).textContent, "1 of 2 subtasks completed.");
+  assert.equal(statusLiveRegion.textContent, "Completed subtask Draft agenda for Prepare launch.");
+
+  getRemoveSubtaskButton(getSubtaskRows(currentRow)[0]).click();
+  currentRow = getTaskRows(taskList)[0];
+  getRemoveSubtaskButton(getSubtaskRows(currentRow)[0]).click();
+  currentRow = getTaskRows(taskList)[0];
+  assert.equal(findByClassName(currentRow, "subtask-empty").textContent, "No subtasks yet. Break this into smaller, clear steps.");
+  assert.equal(alertLiveRegion.textContent, "Removed subtask Review deck from Prepare launch.");
+});
+
+test("cancel button exits editing and restores focus to the edit action", () => {
+  const harness = createAppHarness();
+  const { taskList, document, statusLiveRegion } = harness;
+
+  addTaskWith(harness, { text: "Draft review" });
+  getEditButton(getTaskRows(taskList)[0]).click();
+  let currentRow = getTaskRows(taskList)[0];
+  getCancelButton(currentRow).click();
+
+  currentRow = getTaskRows(taskList)[0];
+  assert.equal(getTaskText(currentRow).textContent, "Draft review");
+  assert.equal(statusLiveRegion.textContent, "Canceled editing for Draft review.");
+  assert.equal(document.activeElement, getEditButton(currentRow));
+});
+
+test("saving a blank edit announces an alert and keeps focus in the edit input", () => {
+  const harness = createAppHarness();
+  const { taskList, alertLiveRegion, document } = harness;
+
+  addTaskWith(harness, { text: "Draft review" });
+  getEditButton(getTaskRows(taskList)[0]).click();
+  let currentRow = getTaskRows(taskList)[0];
+  let editInput = getEditInput(currentRow);
+  editInput.value = "   ";
+  editInput.dispatchEvent({ type: "input" });
+  getSaveButton(currentRow).click();
+
+  currentRow = getTaskRows(taskList)[0];
+  editInput = getEditInput(currentRow);
+  assert.equal(alertLiveRegion.textContent, "Edited task text cannot be empty.");
+  assert.equal(document.activeElement, editInput);
+});
+
+test("editing mode disables the completion checkbox for the active task row", () => {
+  const harness = createAppHarness();
+  const { taskList } = harness;
+
+  addTaskWith(harness, { text: "Draft review" });
+  getEditButton(getTaskRows(taskList)[0]).click();
+
+  assert.equal(getToggle(getTaskRows(taskList)[0]).disabled, true);
+});
+
+test("move controls disable boundary directions for the first and last tasks", () => {
+  const harness = createAppHarness();
+  const { taskList } = harness;
+
+  addTaskWith(harness, { text: "Alpha" });
+  addTaskWith(harness, { text: "Beta" });
+
+  const taskRows = getTaskRows(taskList);
+  assert.equal(getMoveUpButton(taskRows[0]).disabled, true);
+  assert.equal(getMoveDownButton(taskRows[1]).disabled, true);
+});
+
+test("move down button reorders tasks, announces the change, and keeps focus on the moved row", () => {
+  const harness = createAppHarness();
+  const { taskList, statusLiveRegion, document } = harness;
+
+  addTaskWith(harness, { text: "Alpha" });
+  addTaskWith(harness, { text: "Beta" });
+  const movedRowId = getTaskRows(taskList)[0].taskId;
+  getMoveDownButton(getTaskRows(taskList)[0]).click();
+
+  assert.deepEqual(getTaskLabels(taskList), ["Beta", "Alpha"]);
+  assert.equal(statusLiveRegion.textContent, "Moved Alpha down.");
+  assert.equal(document.activeElement.taskId, movedRowId);
+});
+
+test("loading malformed persisted tasks normalizes ids, text, tags, and subtasks safely", () => {
+  const { taskList } = createAppHarness({
+    storageState: {
+      tasks: JSON.stringify([
+        {
+          id: 5,
+          text: "  Keep   calm  ",
+          completed: 1,
+          priority: "urgent",
+          dueDate: "17-04-2026",
+          tags: " Focus , focus , ",
+          subtasks: [
+            { id: 9, title: "  Step one  ", completed: 1 },
+            { title: "   " }
+          ]
+        },
+        { text: "   " },
+        { note: "ignore-me" }
+      ])
+    }
+  });
+
+  const taskRow = getTaskRows(taskList)[0];
+  assert.equal(getTaskRows(taskList).length, 1);
+  assert.equal(taskRow.taskId, "5");
+  assert.equal(taskRow.ariaLabel, "Keep calm, completed");
+  assert.equal(getTaskText(taskRow).textContent, "Keep calm");
+  assert.equal(getPriorityBadge(taskRow), null);
+  assert.equal(getDueDateChip(taskRow), null);
+  assert.deepEqual(getTagChips(taskRow).map((chip) => chip.textContent), ["Focus"]);
+  assert.equal(getSubtaskProgressChip(taskRow).textContent, "1/1 subtasks done");
+});
+
+test("toggling completion updates the row aria label and completion announcement", () => {
+  const harness = createAppHarness();
+  const { taskList, statusLiveRegion } = harness;
+
+  addTaskWith(harness, { text: "Prepare notes" });
+  toggleTaskComplete(getTaskRows(taskList)[0]);
+
+  let currentRow = getTaskRows(taskList)[0];
+  assert.equal(currentRow.ariaLabel, "Prepare notes, completed");
+  assert.equal(statusLiveRegion.textContent, "Completed Prepare notes.");
+
+  toggleTaskComplete(currentRow);
+  currentRow = getTaskRows(taskList)[0];
+  assert.equal(currentRow.ariaLabel, "Prepare notes, active");
+  assert.equal(statusLiveRegion.textContent, "Reopened Prepare notes.");
 });
