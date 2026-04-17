@@ -16,7 +16,7 @@ body {
 
 .container {
   width: 100%;
-  max-width: 600px;
+  max-width: 760px;
   margin: 0 auto;
   padding: 28px;
   border-radius: 16px;
@@ -35,37 +35,116 @@ h1 {
   color: #64748b;
 }
 
-.input-row {
+.input-row,
+.search-row,
+.filter-row,
+.task-actions {
   display: flex;
   gap: 12px;
-  margin-bottom: 20px;
 }
 
-.input-row input {
-  flex: 1;
+.input-row {
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.toolbar {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.input-row input,
+.input-row select,
+.search-row input,
+.edit-input {
+  min-height: 44px;
   padding: 12px 14px;
   border: 1px solid #cbd5e1;
   border-radius: 10px;
   font-size: 1rem;
+  color: inherit;
+  background: #ffffff;
 }
 
-.input-row input:focus {
+#taskInput,
+#searchInput,
+.edit-input {
+  flex: 1;
+}
+
+#priorityInput,
+#dueDateInput {
+  min-width: 160px;
+}
+
+.input-row input:focus,
+.input-row select:focus,
+.search-row input:focus,
+.edit-input:focus,
+.input-row button:focus,
+.filter-btn:focus,
+.secondary-btn:focus,
+.delete-btn:focus {
   outline: 2px solid #93c5fd;
   outline-offset: 2px;
 }
 
-.input-row button {
+.input-row button,
+.filter-btn,
+.secondary-btn {
   padding: 12px 18px;
   border: none;
   border-radius: 10px;
   background: #2563eb;
   color: #ffffff;
-  font-size: 1rem;
+  font-size: 0.95rem;
   cursor: pointer;
 }
 
-.input-row button:hover {
+.input-row button:hover,
+.filter-btn:hover,
+.secondary-btn:hover {
   background: #1d4ed8;
+}
+
+.filter-row {
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.filter-btn:hover {
+  background: #cbd5e1;
+}
+
+.filter-btn.active {
+  background: #1d4ed8;
+  color: #ffffff;
+}
+
+.filter-btn:disabled,
+#clearSearchBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+#clearSearchBtn {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+#clearSearchBtn:hover {
+  background: #cbd5e1;
+}
+
+.results-summary {
+  margin: 0 0 16px;
+  color: #64748b;
+  font-size: 0.95rem;
 }
 
 .empty-state {
@@ -79,7 +158,7 @@ h1 {
 
 .task-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   padding: 14px 16px;
   margin-bottom: 12px;
@@ -94,16 +173,32 @@ h1 {
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
 }
 
+.task-item.priority-high {
+  border-color: #f59e0b;
+}
+
 .task-toggle {
   width: 18px;
   height: 18px;
+  margin-top: 4px;
   cursor: pointer;
 }
 
-.task-text {
+.task-content {
+  display: grid;
+  gap: 6px;
   flex: 1;
+  min-width: 0;
+}
+
+.task-text {
   word-break: break-word;
   cursor: pointer;
+}
+
+.task-meta {
+  color: #64748b;
+  font-size: 0.9rem;
 }
 
 .completed .task-text {
@@ -111,13 +206,21 @@ h1 {
   text-decoration: line-through;
 }
 
+.secondary-btn {
+  background: #475569;
+}
+
+.secondary-btn:hover {
+  background: #334155;
+}
+
 .delete-btn {
-  margin-left: auto;
-  padding: 8px 12px;
+  padding: 12px 18px;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   background: #ef4444;
   color: #ffffff;
+  font-size: 0.95rem;
   cursor: pointer;
 }
 
@@ -125,16 +228,34 @@ h1 {
   background: #dc2626;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 640px) {
   body {
     padding: 20px 12px;
   }
 
-  .input-row {
+  .container {
+    padding: 22px;
+  }
+
+  .input-row,
+  .search-row,
+  .task-item,
+  .task-actions {
     flex-direction: column;
   }
 
-  .input-row button {
+  .task-item {
+    align-items: stretch;
+  }
+
+  .task-actions button,
+  .input-row button,
+  .search-row button {
+    width: 100%;
+  }
+
+  #priorityInput,
+  #dueDateInput {
     width: 100%;
   }
 }
