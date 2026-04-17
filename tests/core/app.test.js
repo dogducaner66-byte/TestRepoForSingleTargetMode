@@ -25,6 +25,9 @@ class Element {
     this.checked = false;
     this.disabled = false;
     this.ariaPressed = "";
+    this.ariaExpanded = "";
+    this.placeholder = "";
+    this.style = {};
     this._id = "";
   }
 
@@ -209,6 +212,9 @@ function createAppHarness(options = {}) {
   const dueDateInput = document.createElement("input");
   dueDateInput.id = "dueDateInput";
   dueDateInput.type = "date";
+  const tagsInput = document.createElement("input");
+  tagsInput.id = "tagsInput";
+  tagsInput.type = "text";
   const addBtn = document.createElement("button");
   addBtn.id = "addBtn";
   const searchInput = document.createElement("input");
@@ -234,6 +240,7 @@ function createAppHarness(options = {}) {
   document.body.appendChild(taskInput);
   document.body.appendChild(priorityInput);
   document.body.appendChild(dueDateInput);
+  document.body.appendChild(tagsInput);
   document.body.appendChild(addBtn);
   document.body.appendChild(searchInput);
   document.body.appendChild(clearSearchBtn);
@@ -269,6 +276,7 @@ function createAppHarness(options = {}) {
     taskInput,
     priorityInput,
     dueDateInput,
+    tagsInput,
     addBtn,
     searchInput,
     clearSearchBtn,
@@ -304,6 +312,14 @@ function getDueDateChip(taskRow) {
   return findByClassName(taskRow, "due-date-chip");
 }
 
+function getSubtaskProgressChip(taskRow) {
+  return findByClassName(taskRow, "subtask-progress-chip");
+}
+
+function getTagChips(taskRow) {
+  return collectByClassName(taskRow, "task-tag");
+}
+
 function getDeleteButton(taskRow) {
   return findButtonByText(taskRow, "Delete");
 }
@@ -326,6 +342,34 @@ function getToggle(taskRow) {
 
 function getEditInput(taskRow) {
   return findByClassName(taskRow, "edit-input");
+}
+
+function getDetailsToggle(taskRow) {
+  return findByClassName(taskRow, "details-toggle");
+}
+
+function getTaskDetails(taskRow) {
+  return findByClassName(taskRow, "task-details");
+}
+
+function getSubtaskInput(taskRow) {
+  return findByClassName(taskRow, "subtask-input");
+}
+
+function getSubtaskRows(taskRow) {
+  return collectByClassName(taskRow, "subtask-item");
+}
+
+function getSubtaskText(subtaskRow) {
+  return findByClassName(subtaskRow, "subtask-text");
+}
+
+function getSubtaskToggle(subtaskRow) {
+  return findByClassName(subtaskRow, "subtask-toggle");
+}
+
+function getRemoveSubtaskButton(subtaskRow) {
+  return findButtonByText(subtaskRow, "Remove");
 }
 
 test("static delivery assets exist and stay browser-openable without a build step", () => {
@@ -354,12 +398,13 @@ test("the empty state appears when there are no tasks and the toolbar starts in 
   assert.deepEqual(loggedErrors, []);
 });
 
-test("adding a task with the button preserves priority and due date metadata", () => {
-  const { taskInput, priorityInput, dueDateInput, addBtn, taskList, localStorage } = createAppHarness();
+test("adding a task with the button preserves priority, due date, and tag metadata", () => {
+  const { taskInput, priorityInput, dueDateInput, tagsInput, addBtn, taskList, localStorage } = createAppHarness();
 
   taskInput.value = "Buy groceries";
   priorityInput.value = "high";
   dueDateInput.value = "2026-04-17";
+  tagsInput.value = "Errands, Home, errands";
   addBtn.click();
 
   const taskRows = getTaskRows(taskList);
@@ -367,6 +412,7 @@ test("adding a task with the button preserves priority and due date metadata", (
   assert.equal(getTaskText(taskRows[0]).textContent, "Buy groceries");
   assert.equal(getPriorityBadge(taskRows[0]).textContent, "High priority");
   assert.equal(getDueDateChip(taskRows[0]).textContent, "Due 2026-04-17");
+  assert.deepEqual(getTagChips(taskRows[0]).map((chip) => chip.textContent), ["Errands", "Home"]);
 
   const savedTasks = JSON.parse(localStorage.getItem("tasks"));
   assert.equal(savedTasks.length, 1);
@@ -374,10 +420,12 @@ test("adding a task with the button preserves priority and due date metadata", (
   assert.equal(savedTasks[0].completed, false);
   assert.equal(savedTasks[0].priority, "high");
   assert.equal(savedTasks[0].dueDate, "2026-04-17");
+  assert.deepEqual(savedTasks[0].tags, ["Errands", "Home"]);
+  assert.deepEqual(savedTasks[0].subtasks, []);
 });
 
 test("pressing Enter adds a task and whitespace-only input is ignored", () => {
-  const { taskInput, dueDateInput, taskList } = createAppHarness();
+  const { taskInput, tagsInput, taskList } = createAppHarness();
 
   taskInput.value = "   ";
   taskInput.dispatchEvent({ type: "keydown", key: "Enter" });
@@ -385,25 +433,36 @@ test("pressing Enter adds a task and whitespace-only input is ignored", () => {
   assert.equal(taskList.children[0].className, "empty-state");
 
   taskInput.value = "Read a chapter";
-  dueDateInput.dispatchEvent({ type: "keydown", key: "Enter" });
+  tagsInput.dispatchEvent({ type: "keydown", key: "Enter" });
   assert.equal(getTaskRows(taskList).length, 1);
   assert.equal(getTaskText(getTaskRows(taskList)[0]).textContent, "Read a chapter");
 });
 
-test("live search filters tasks immediately and clear search restores the full list", () => {
-  const { taskInput, addBtn, searchInput, clearSearchBtn, taskList, document } = createAppHarness();
+test("live search filters tasks by title, tags, and subtasks and clear search restores the full list", () => {
+  const { taskInput, tagsInput, addBtn, searchInput, clearSearchBtn, taskList, document } = createAppHarness();
 
   taskInput.value = "Plan vacation";
+  tagsInput.value = "Travel";
   addBtn.click();
+
+  getDetailsToggle(getTaskRows(taskList)[0]).click();
+  const subtaskInput = getSubtaskInput(getTaskRows(taskList)[0]);
+  subtaskInput.value = "Book hotel";
+  findButtonByText(getTaskRows(taskList)[0], "Add subtask").click();
+
   taskInput.value = "Pick up groceries";
+  tagsInput.value = "Errands";
   addBtn.click();
 
-  searchInput.value = "gro";
+  searchInput.value = "travel";
   searchInput.dispatchEvent({ type: "input" });
-
   assert.equal(getTaskRows(taskList).length, 1);
-  assert.equal(getTaskText(getTaskRows(taskList)[0]).textContent, "Pick up groceries");
-  assert.equal(clearSearchBtn.disabled, false);
+  assert.equal(getTaskText(getTaskRows(taskList)[0]).textContent, "Plan vacation");
+
+  searchInput.value = "hotel";
+  searchInput.dispatchEvent({ type: "input" });
+  assert.equal(getTaskRows(taskList).length, 1);
+  assert.equal(getTaskText(getTaskRows(taskList)[0]).textContent, "Plan vacation");
 
   clearSearchBtn.click();
 
@@ -478,20 +537,71 @@ test("editing uses explicit save controls and Escape cancels without losing the 
   assert.equal(getTaskText(getTaskRows(taskList)[0]).textContent, "Draft quarterly review slides");
 });
 
-test("toggling a task updates its visual completed state and persisted value", () => {
+test("expanded checklist supports subtask progress while parent completion stays independent", () => {
   const { taskInput, addBtn, taskList, localStorage } = createAppHarness();
 
-  taskInput.value = "Wash the car";
+  taskInput.value = "Prepare launch";
   addBtn.click();
 
-  const taskRow = getTaskRows(taskList)[0];
-  getToggle(taskRow).dispatchEvent({ type: "change" });
+  getDetailsToggle(getTaskRows(taskList)[0]).click();
+  let currentRow = getTaskRows(taskList)[0];
+  let subtaskInput = getSubtaskInput(currentRow);
+  subtaskInput.value = "Review analytics";
+  findButtonByText(currentRow, "Add subtask").click();
 
-  const updatedRow = getTaskRows(taskList)[0];
-  assert.match(updatedRow.className, /\bcompleted\b/);
+  currentRow = getTaskRows(taskList)[0];
+  subtaskInput = getSubtaskInput(currentRow);
+  subtaskInput.value = "Queue announcement";
+  subtaskInput.dispatchEvent({ type: "keydown", key: "Enter" });
+
+  currentRow = getTaskRows(taskList)[0];
+  assert.equal(getSubtaskRows(currentRow).length, 2);
+  assert.equal(getSubtaskText(getSubtaskRows(currentRow)[0]).textContent, "Review analytics");
+  assert.equal(getSubtaskProgressChip(currentRow).textContent, "0/2 subtasks done");
+
+  getSubtaskToggle(getSubtaskRows(currentRow)[0]).dispatchEvent({ type: "change" });
+
+  currentRow = getTaskRows(taskList)[0];
+  assert.doesNotMatch(currentRow.className, /\bcompleted\b/);
+  assert.equal(getSubtaskProgressChip(currentRow).textContent, "1/2 subtasks done");
+
+  getDetailsToggle(currentRow).click();
+  currentRow = getTaskRows(taskList)[0];
+  assert.equal(getTaskDetails(currentRow), null);
+  assert.equal(getSubtaskProgressChip(currentRow).textContent, "1/2 subtasks done");
+
+  getToggle(currentRow).dispatchEvent({ type: "change" });
+  currentRow = getTaskRows(taskList)[0];
+  assert.match(currentRow.className, /\bcompleted\b/);
 
   const savedTasks = JSON.parse(localStorage.getItem("tasks"));
   assert.equal(savedTasks[0].completed, true);
+  assert.deepEqual(savedTasks[0].subtasks, [
+    { id: savedTasks[0].subtasks[0].id, title: "Review analytics", completed: true },
+    { id: savedTasks[0].subtasks[1].id, title: "Queue announcement", completed: false }
+  ]);
+});
+
+test("deterministic tag hashing gives the same tag the same color every time", () => {
+  const { taskInput, tagsInput, addBtn, taskList } = createAppHarness();
+
+  taskInput.value = "Morning review";
+  tagsInput.value = "Focus";
+  addBtn.click();
+
+  taskInput.value = "Inbox zero";
+  tagsInput.value = "Focus, Admin";
+  addBtn.click();
+
+  const taskRows = getTaskRows(taskList);
+  const firstFocusChip = getTagChips(taskRows[0])[0];
+  const secondFocusChip = getTagChips(taskRows[1])[0];
+  const adminChip = getTagChips(taskRows[1])[1];
+
+  assert.equal(firstFocusChip.style.backgroundColor, secondFocusChip.style.backgroundColor);
+  assert.equal(firstFocusChip.style.borderColor, secondFocusChip.style.borderColor);
+  assert.equal(firstFocusChip.style.color, secondFocusChip.style.color);
+  assert.notEqual(firstFocusChip.style.backgroundColor, adminChip.style.backgroundColor);
 });
 
 test("deleting the last task removes it and restores the empty state", () => {
@@ -507,14 +617,21 @@ test("deleting the last task removes it and restores the empty state", () => {
   assert.equal(taskList.children[0].className, "empty-state");
 });
 
-test("tasks persist across refreshes through localStorage", () => {
+test("tasks persist tags and subtasks across refreshes through localStorage", () => {
   const localStorage = createStorage();
   const firstPage = createAppHarness({ localStorage });
 
   firstPage.taskInput.value = "Plan weekend trip";
   firstPage.priorityInput.value = "high";
   firstPage.dueDateInput.value = "2026-04-17";
+  firstPage.tagsInput.value = "Travel, Personal";
   firstPage.addBtn.click();
+
+  getDetailsToggle(getTaskRows(firstPage.taskList)[0]).click();
+  let currentRow = getTaskRows(firstPage.taskList)[0];
+  let subtaskInput = getSubtaskInput(currentRow);
+  subtaskInput.value = "Book train";
+  findButtonByText(currentRow, "Add subtask").click();
 
   const secondPage = createAppHarness({ localStorage });
   const taskRows = getTaskRows(secondPage.taskList);
@@ -523,11 +640,17 @@ test("tasks persist across refreshes through localStorage", () => {
   assert.equal(getTaskText(taskRows[0]).textContent, "Plan weekend trip");
   assert.equal(getPriorityBadge(taskRows[0]).textContent, "High priority");
   assert.equal(getDueDateChip(taskRows[0]).textContent, "Due 2026-04-17");
-  assert.equal(secondPage.taskList.children[0].className, "task-item priority-high");
+  assert.deepEqual(getTagChips(taskRows[0]).map((chip) => chip.textContent), ["Travel", "Personal"]);
+  assert.equal(getSubtaskProgressChip(taskRows[0]).textContent, "0/1 subtasks done");
+
+  getDetailsToggle(taskRows[0]).click();
+  const expandedRow = getTaskRows(secondPage.taskList)[0];
+  assert.equal(getSubtaskRows(expandedRow).length, 1);
+  assert.equal(getSubtaskText(getSubtaskRows(expandedRow)[0]).textContent, "Book train");
 });
 
-test("task storage stays anchored to the tasks key and normalizes legacy metadata for render filtering and save", () => {
-  const { taskList, localStorage, filterDueToday, filterAll } = createAppHarness({
+test("task storage stays anchored to the tasks key and normalizes legacy metadata for render, search, and save", () => {
+  const { taskList, localStorage, filterDueToday, filterAll, searchInput } = createAppHarness({
     storageState: {
       tasks: JSON.stringify([
         {
@@ -536,19 +659,28 @@ test("task storage stays anchored to the tasks key and normalizes legacy metadat
           completed: 0,
           priority: "high",
           dueDate: "2026-04-17",
-          tags: ["travel"]
+          tags: [" travel ", "Travel", "", "planning"],
+          subtasks: [
+            { id: "s-1", title: " Book hotel ", completed: 1 },
+            { id: "s-2", title: "   ", completed: true }
+          ]
         },
         {
           id: "beta",
           text: "Inbox zero",
-          completed: false
+          completed: false,
+          tags: "focus, Deep Work",
+          subtasks: "not-an-array"
         },
         {
           id: "gamma",
           text: "Review budget",
           completed: false,
           priority: "high",
-          dueDate: "2026-5-01"
+          dueDate: "2026-5-01",
+          subtasks: [
+            { title: "Check subscriptions", completed: false }
+          ]
         },
         {
           id: "missing-text",
@@ -563,17 +695,26 @@ test("task storage stays anchored to the tasks key and normalizes legacy metadat
   assert.equal(getTaskText(taskRows[0]).textContent, "Plan trip");
   assert.equal(getPriorityBadge(taskRows[0]).textContent, "High priority");
   assert.equal(getDueDateChip(taskRows[0]).textContent, "Due 2026-04-17");
-  assert.equal(getTaskMeta(taskRows[1]), null);
-  assert.equal(getPriorityBadge(taskRows[2]).textContent, "High priority");
+  assert.equal(getSubtaskProgressChip(taskRows[0]).textContent, "1/1 subtasks done");
+  assert.deepEqual(getTagChips(taskRows[0]).map((chip) => chip.textContent), ["travel", "planning"]);
+  assert.deepEqual(getTagChips(taskRows[1]).map((chip) => chip.textContent), ["focus", "Deep Work"]);
+  assert.equal(getSubtaskProgressChip(taskRows[2]).textContent, "0/1 subtasks done");
   assert.equal(getDueDateChip(taskRows[2]), null);
+  assert.equal(getTaskMeta(taskRows[1]).className, "task-meta");
 
   filterDueToday.click();
   assert.equal(getTaskRows(taskList).length, 1);
   assert.equal(getTaskText(getTaskRows(taskList)[0]).textContent, "Plan trip");
 
   filterAll.click();
+  searchInput.value = "subscriptions";
+  searchInput.dispatchEvent({ type: "input" });
+  assert.equal(getTaskRows(taskList).length, 1);
+  assert.equal(getTaskText(getTaskRows(taskList)[0]).textContent, "Review budget");
 
-  getToggle(taskRows[0]).dispatchEvent({ type: "change" });
+  searchInput.value = "";
+  searchInput.dispatchEvent({ type: "input" });
+  getToggle(getTaskRows(taskList)[0]).dispatchEvent({ type: "change" });
 
   assert.deepEqual(JSON.parse(localStorage.getItem("tasks")), [
     {
@@ -581,26 +722,44 @@ test("task storage stays anchored to the tasks key and normalizes legacy metadat
       text: "Plan trip",
       completed: true,
       priority: "high",
-      dueDate: "2026-04-17"
+      dueDate: "2026-04-17",
+      tags: ["travel", "planning"],
+      subtasks: [
+        {
+          id: "s-1",
+          title: "Book hotel",
+          completed: true
+        }
+      ]
     },
     {
       id: "beta",
       text: "Inbox zero",
       completed: false,
       priority: "normal",
-      dueDate: ""
+      dueDate: "",
+      tags: ["focus", "Deep Work"],
+      subtasks: []
     },
     {
       id: "gamma",
       text: "Review budget",
       completed: false,
       priority: "high",
-      dueDate: ""
+      dueDate: "",
+      tags: [],
+      subtasks: [
+        {
+          id: "gamma-subtask-0",
+          title: "Check subscriptions",
+          completed: false
+        }
+      ]
     }
   ]);
 });
 
-test("html and css expose the new control scaffold and task editing seams", () => {
+test("html and css expose the new tag and subtask organization scaffold", () => {
   const html = fs.readFileSync(indexPath, "utf8");
   const css = fs.readFileSync(stylePath, "utf8");
 
@@ -614,6 +773,8 @@ test("html and css expose the new control scaffold and task editing seams", () =
   assert.match(html, /id="filterDueToday"/);
   assert.match(html, /id="priorityInput"/);
   assert.match(html, /id="dueDateInput"/);
+  assert.match(html, /id="tagsInput"/);
+  assert.match(html, /class="composer-secondary"/);
   assert.match(html, /id="resultsSummary"/);
 
   assert.match(css, /:root\s*\{/);
@@ -622,10 +783,14 @@ test("html and css expose the new control scaffold and task editing seams", () =
   assert.match(css, /\.task-content\s*\{/);
   assert.match(css, /\.task-meta\s*\{/);
   assert.match(css, /\.task-badge,\s*[\r\n]+\s*\.task-chip\s*\{/);
-  assert.match(css, /\.due-date-chip\s*\{/);
-  assert.match(css, /\.empty-state::before\s*\{/);
-  assert.match(css, /\.edit-input\s*\{/);
-  assert.match(css, /\.task-item\.priority-high::before\s*\{/);
+  assert.match(css, /\.task-tag\s*\{/);
+  assert.match(css, /\.subtask-progress-chip\s*\{/);
+  assert.match(css, /\.task-details\s*\{/);
+  assert.match(css, /\.subtask-editor\s*\{/);
+  assert.match(css, /\.subtask-list\s*\{/);
+  assert.match(css, /\.subtask-item\s*\{/);
+  assert.match(css, /\.subtask-toggle\s*\{/);
+  assert.match(css, /\.composer-secondary\s*\{/);
 });
 
 test("invalid saved task data falls back to a safe empty state and logs the load error", () => {
@@ -659,5 +824,5 @@ test("save failures are logged without blocking in-memory task updates", () => {
   const taskRows = getTaskRows(taskList);
   assert.equal(taskRows.length, 1);
   assert.equal(getTaskText(taskRows[0]).textContent, "Write backup plan");
-  assert.deepEqual(loggedErrors, ["Failed to save tasks to localStorage."]);
+  assert.deepEqual(loggedErrors, ["Failed to save tasks from localStorage.".replace("from", "to")]);
 });

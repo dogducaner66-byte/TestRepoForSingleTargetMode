@@ -1,1 +1,1 @@
-This personal todo app is a simple browser-based task list with a clean UI for adding, completing, and deleting tasks; open `index.html` in any modern browser to use it, and your task list is saved automatically in `localStorage` so it stays available between visits.
+This personal todo app is a browser-based focus board with search, filters, due dates, priorities, persistent tags, and expandable subtasks; open `index.html` in any modern browser to use it, and your task list is saved automatically in `localStorage` so it stays available between visits.
