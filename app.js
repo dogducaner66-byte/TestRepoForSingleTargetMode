@@ -108,19 +108,26 @@ document.addEventListener("DOMContentLoaded", () => {
     return dueDate ? `Due ${dueDate}` : "";
   }
 
-  function buildMetaText(task) {
-    const details = [];
+  function createTaskMeta(task) {
+    const taskMeta = document.createElement("div");
+    taskMeta.className = "task-meta";
 
     if (task.priority === "high") {
-      details.push("High priority");
+      const priorityBadge = document.createElement("span");
+      priorityBadge.className = "task-badge priority-badge";
+      priorityBadge.textContent = "High priority";
+      taskMeta.appendChild(priorityBadge);
     }
 
     const dueDateLabel = getTaskDueDateLabel(task);
     if (dueDateLabel) {
-      details.push(dueDateLabel);
+      const dueDateChip = document.createElement("span");
+      dueDateChip.className = `task-chip due-date-chip${isTaskDueToday(task) ? " due-today" : ""}`;
+      dueDateChip.textContent = dueDateLabel;
+      taskMeta.appendChild(dueDateChip);
     }
 
-    return details.join(" · ");
+    return taskMeta.children.length > 0 ? taskMeta : null;
   }
 
   function resetComposer() {
@@ -338,13 +345,13 @@ document.addEventListener("DOMContentLoaded", () => {
       taskText.textContent = task.text;
       taskText.addEventListener("click", () => toggleTask(task.id));
 
-      taskContent.appendChild(taskText);
+      const taskHeader = document.createElement("div");
+      taskHeader.className = "task-header";
+      taskHeader.appendChild(taskText);
+      taskContent.appendChild(taskHeader);
 
-      const metaText = buildMetaText(task);
-      if (metaText) {
-        const taskMeta = document.createElement("span");
-        taskMeta.className = "task-meta";
-        taskMeta.textContent = metaText;
+      const taskMeta = createTaskMeta(task);
+      if (taskMeta) {
         taskContent.appendChild(taskMeta);
       }
 
